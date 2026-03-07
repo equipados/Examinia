@@ -1,0 +1,57 @@
+{
+  "solutions": [
+    {
+      "exercise": "1",
+      "part": "a",
+      "topic": "sistemas de ecuaciones",
+      "expected_final_answer": "x=2, y=-1",
+      "accepted_equivalents": [
+        "y=-1, x=2",
+        "(2,-1)"
+      ],
+      "expected_steps": [
+        "plantea correctamente el sistema",
+        "elimina una variable",
+        "obtiene la solución final"
+      ],
+      "common_errors": [
+        "error de signo",
+        "error aritmético final"
+      ],
+      "max_points": 0.5,
+      "partial_credit_rules": [
+        {
+          "condition": "procedimiento correcto pero error aritmético final",
+          "points": 0.25,
+          "explanation": "Se observa planteamiento correcto con error de cálculo en el último paso."
+        }
+      ],
+      "comments": "Plantilla de ejemplo. Sustituir por soluciones reales del examen."
+    },
+    {
+      "exercise": "1",
+      "part": "b",
+      "topic": "derivadas",
+      "expected_final_answer": "2x+3",
+      "accepted_equivalents": [
+        "3+2x"
+      ],
+      "expected_steps": [
+        "deriva término a término",
+        "simplifica el resultado"
+      ],
+      "common_errors": [
+        "derivación incorrecta de constante",
+        "error aritmético"
+      ],
+      "max_points": 0.5,
+      "partial_credit_rules": [
+        {
+          "condition": "planteamiento correcto",
+          "points": 0.2,
+          "explanation": "Se concede puntuación por parte del procedimiento correcto."
+        }
+      ]
+    }
+  ]
+}

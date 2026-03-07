@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Informe de costes IA — Examinia{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Informe de costes IA</h1>
+  <p class="text-sm text-gray-500 mt-1">Tokens consumidos y coste estimado por convocatoria y operación.</p>
+</div>
+
+{% if grand.total == 0 %}
+<div class="text-center py-20 text-gray-400">
+  <p class="text-lg">Aún no hay datos de uso de tokens.</p>
+  <p class="text-sm mt-2">Los datos se registran a partir de las correcciones realizadas con esta versión.</p>
+</div>
+{% else %}
+
+<!-- ── Tarjetas de resumen global ─────────────────────────────────────── -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 text-center">
+    <div class="text-2xl font-bold text-gray-900">{{ "{:,}".format(grand.total) }}</div>
+    <div class="text-xs text-gray-500 mt-1">Tokens totales</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 text-center">
+    <div class="text-2xl font-bold text-emerald-700">${{ "%.3f"|format(grand.cost) }}</div>
+    <div class="text-xs text-gray-500 mt-1">Coste total (USD)</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 text-center">
+    <div class="text-2xl font-bold text-blue-700">{{ grand.done_exams }}</div>
+    <div class="text-xs text-gray-500 mt-1">Exámenes corregidos</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 text-center">
+    <div class="text-2xl font-bold text-purple-700">
+      {% if grand.cost_per_exam is not none %}
+        ${{ "%.4f"|format(grand.cost_per_exam) }}
+      {% else %}—{% endif %}
+    </div>
+    <div class="text-xs text-gray-500 mt-1">Coste medio / examen</div>
+  </div>
+</div>
+
+<!-- ── Tabla por convocatoria ─────────────────────────────────────────── -->
+<div class="space-y-3">
+  {% for item in sessions_report %}
+  {% set s = item.session %}
+  <details class="bg-white rounded-xl border border-gray-200 shadow-sm group" {% if loop.first %}open{% endif %}>
+    <summary class="flex flex-wrap items-center gap-3 px-5 py-4 cursor-pointer select-none list-none">
+      <!-- Nombre de convocatoria -->
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <svg class="h-4 w-4 text-gray-400 shrink-0 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+          {% if s %}
+          <a href="/sessions/{{ s.id }}" class="font-semibold text-gray-800 hover:text-blue-600 truncate" onclick="event.stopPropagation()">
+            {{ s.name }}
+          </a>
+          {% if s.date %}<span class="text-xs text-gray-400 shrink-0">{{ s.date }}</span>{% endif %}
+          {% else %}
+          <span class="font-semibold text-gray-500">Sesión desconocida</span>
+          {% endif %}
+        </div>
+      </div>
+      <!-- Métricas resumen en la misma línea -->
+      <div class="flex items-center gap-5 text-sm shrink-0">
+        <div class="text-center">
+          <div class="font-mono font-semibold text-gray-700">{{ "{:,}".format(item.totals.total) }}</div>
+          <div class="text-xs text-gray-400">tokens</div>
+        </div>
+        <div class="text-center">
+          <div class="font-mono font-semibold text-gray-700">{{ item.totals.calls }}</div>
+          <div class="text-xs text-gray-400">llamadas</div>
+        </div>
+        <div class="text-center">
+          <div class="font-mono font-semibold text-gray-700">{{ item.done_exams }}</div>
+          <div class="text-xs text-gray-400">exámenes</div>
+        </div>
+        <div class="text-center min-w-[70px]">
+          <div class="font-mono font-bold text-emerald-700">${{ "%.4f"|format(item.totals.cost) }}</div>
+          <div class="text-xs text-gray-400">total</div>
+        </div>
+        <div class="text-center min-w-[70px]">
+          <div class="font-mono font-bold text-purple-700">
+            {% if item.cost_per_exam is not none %}${{ "%.4f"|format(item.cost_per_exam) }}{% else %}—{% endif %}
+          </div>
+          <div class="text-xs text-gray-400">por examen</div>
+        </div>
+      </div>
+    </summary>
+
+    <!-- Detalle expandido -->
+    <div class="border-t border-gray-100 px-5 py-4">
+      {% for op in item.ops %}
+      <div class="mb-4 last:mb-0">
+        <!-- Cabecera de operación -->
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold uppercase tracking-wide text-gray-500">{{ op.label }}</span>
+          <div class="flex items-center gap-4 text-xs text-gray-500 font-mono">
+            <span>{{ "{:,}".format(op.subtotal.input) }} entrada</span>
+            <span>{{ "{:,}".format(op.subtotal.output) }} salida</span>
+            <span class="font-semibold text-gray-700">{{ "{:,}".format(op.subtotal.total) }} total</span>
+            <span class="font-bold text-emerald-700">${{ "%.4f"|format(op.subtotal.cost) }}</span>
+          </div>
+        </div>
+        <!-- Tabla por modelo -->
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="text-gray-400 border-b border-gray-100">
+              <th class="text-left pb-1 font-medium pl-3">Modelo</th>
+              <th class="text-right pb-1 font-medium">Llamadas</th>
+              <th class="text-right pb-1 font-medium">Tokens entrada</th>
+              <th class="text-right pb-1 font-medium">Tokens salida</th>
+              <th class="text-right pb-1 font-medium">Total tokens</th>
+              <th class="text-right pb-1 font-medium">Coste est.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for m in op.models %}
+            <tr class="text-gray-600 border-b border-gray-50 last:border-0">
+              <td class="py-1 pl-3 font-mono text-blue-700">{{ m.model }}</td>
+              <td class="py-1 text-right font-mono text-gray-500">{{ m.calls }}</td>
+              <td class="py-1 text-right font-mono">{{ "{:,}".format(m.input) }}</td>
+              <td class="py-1 text-right font-mono">{{ "{:,}".format(m.output) }}</td>
+              <td class="py-1 text-right font-mono font-semibold text-gray-700">{{ "{:,}".format(m.total) }}</td>
+              <td class="py-1 text-right font-mono text-emerald-700">${{ "%.5f"|format(m.cost) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
+
+      <!-- Totales de la convocatoria -->
+      <div class="mt-3 pt-3 border-t border-gray-200 flex flex-wrap gap-6 text-xs">
+        <div>
+          <span class="text-gray-400">Total entrada:</span>
+          <span class="font-mono font-semibold text-gray-700 ml-1">{{ "{:,}".format(item.totals.input) }}</span>
+        </div>
+        <div>
+          <span class="text-gray-400">Total salida:</span>
+          <span class="font-mono font-semibold text-gray-700 ml-1">{{ "{:,}".format(item.totals.output) }}</span>
+        </div>
+        <div>
+          <span class="text-gray-400">Total tokens:</span>
+          <span class="font-mono font-bold text-gray-800 ml-1">{{ "{:,}".format(item.totals.total) }}</span>
+        </div>
+        <div>
+          <span class="text-gray-400">Total llamadas API:</span>
+          <span class="font-mono font-semibold text-gray-700 ml-1">{{ item.totals.calls }}</span>
+        </div>
+        <div>
+          <span class="text-gray-400">Coste total:</span>
+          <span class="font-mono font-bold text-emerald-700 ml-1">${{ "%.4f"|format(item.totals.cost) }}</span>
+        </div>
+        {% if item.cost_per_exam is not none %}
+        <div>
+          <span class="text-gray-400">Coste medio / examen ({{ item.done_exams }} corregidos):</span>
+          <span class="font-mono font-bold text-purple-700 ml-1">${{ "%.5f"|format(item.cost_per_exam) }}</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </details>
+  {% endfor %}
+</div>
+
+<!-- ── Totales globales ────────────────────────────────────────────────── -->
+<div class="mt-6 bg-gray-900 rounded-xl px-6 py-5 text-white">
+  <div class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Totales globales</div>
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+    <div>
+      <div class="text-xl font-bold font-mono">{{ "{:,}".format(grand.total) }}</div>
+      <div class="text-xs text-gray-400">tokens totales</div>
+    </div>
+    <div>
+      <div class="text-xl font-bold font-mono text-blue-300">{{ "{:,}".format(grand.input) }}</div>
+      <div class="text-xs text-gray-400">tokens entrada</div>
+    </div>
+    <div>
+      <div class="text-xl font-bold font-mono text-purple-300">{{ "{:,}".format(grand.output) }}</div>
+      <div class="text-xs text-gray-400">tokens salida</div>
+    </div>
+    <div>
+      <div class="text-xl font-bold font-mono text-emerald-400">${{ "%.3f"|format(grand.cost) }}</div>
+      <div class="text-xs text-gray-400">coste total USD</div>
+    </div>
+    <div>
+      <div class="text-xl font-bold font-mono text-yellow-300">
+        {% if grand.cost_per_exam is not none %}${{ "%.4f"|format(grand.cost_per_exam) }}{% else %}—{% endif %}
+      </div>
+      <div class="text-xs text-gray-400">coste medio / examen</div>
+    </div>
+  </div>
+</div>
+
+<p class="text-xs text-gray-400 mt-4 text-center">
+  Precios de referencia (USD/millón de tokens): Flash $0.15 entrada / $0.60 salida · Pro $1.25 / $10.00.
+  Los precios reales pueden variar. Consulta
+  <a href="https://ai.google.dev/pricing" target="_blank" class="underline">ai.google.dev/pricing</a>.
+</p>
+
+{% endif %}
+{% endblock %}

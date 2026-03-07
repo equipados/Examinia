@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+{% block title %}{{ session.name }} — Examinia{% endblock %}
+
+{% block content %}
+<!-- Header -->
+<div class="flex flex-wrap items-start justify-between gap-4 mb-6">
+  <div>
+    <a href="/" class="text-blue-600 hover:underline text-sm">&larr; Inicio</a>
+    <h1 class="text-2xl font-bold text-gray-900 mt-1">{{ session.name }}</h1>
+    <div class="text-sm text-gray-500 flex flex-wrap gap-3 mt-1">
+      {% if session.date %}<span>{{ session.date }}</span>{% endif %}
+      {% if session.course_level %}
+      <span>{{ course_labels.get(session.course_level, session.course_level) }}</span>
+      {% endif %}
+      {% if session.subject %}<span>{{ session.subject }}</span>{% endif %}
+      <!-- Control de puntuación máxima -->
+      <form method="post" action="/sessions/{{ session.id }}/set-max-points"
+            class="flex items-center gap-1" title="Puntuación máxima total">
+        <span class="text-gray-400">Nota sobre</span>
+        <input type="number" name="max_total_points" step="0.5" min="1" max="100"
+               value="{{ session.max_total_points | int if session.max_total_points else '' }}"
+               placeholder="10"
+               class="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500">
+        <button type="submit" class="text-xs text-blue-600 hover:underline">✓</button>
+      </form>
+    </div>
+  </div>
+  <div class="flex gap-2 flex-wrap">
+    <a href="/sessions/{{ session.id }}/upload"
+       class="bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+      + Subir PDFs
+    </a>
+    <a href="/sessions/{{ session.id }}/solutions"
+       class="border border-purple-500 text-purple-700 hover:bg-purple-50 px-4 py-2 rounded-lg text-sm font-semibold transition">
+      Soluciones
+    </a>
+    <a href="/sessions/{{ session.id }}/excel"
+       class="border border-green-600 text-green-700 hover:bg-green-50 px-4 py-2 rounded-lg text-sm font-semibold transition">
+      Exportar Excel
+    </a>
+    {% if session.status == "open" %}
+    <form method="post" action="/sessions/{{ session.id }}/archive">
+      <button class="border border-gray-400 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-lg text-sm transition">
+        Archivar
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Aviso si hay exámenes esperando validación de soluciones (solo si NO se está corrigiendo ya) -->
+{% set grading_started = submissions | selectattr("status", "equalto", "processing") | list | length > 0 or done_count > 0 or error_count > 0 %}
+{% if pending > 0 and not grading_started %}
+<div class="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 mb-4 text-sm text-purple-800 flex items-center justify-between">
+  <span>Hay <strong>{{ pending }}</strong> examen(es) en espera. Valida las soluciones IA antes de iniciar la corrección.</span>
+  <a href="/sessions/{{ session.id }}/solutions"
+     class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition ml-4 shrink-0">
+    Validar soluciones →
+  </a>
+</div>
+{% endif %}
+
+<!-- Panel de log de corrección mientras hay exámenes procesando -->
+{% set processing_subs = submissions | selectattr("status", "in", ["processing", "pending"]) | list %}
+{% if processing_subs %}
+<div class="bg-gray-900 rounded-xl overflow-hidden border border-gray-700 shadow-sm mb-5">
+  <!-- Cabecera -->
+  <div class="flex items-center justify-between px-4 py-2.5 bg-gray-800 border-b border-gray-700">
+    <div class="flex items-center gap-2">
+      <svg class="animate-spin h-3.5 w-3.5 text-yellow-400 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+      </svg>
+      <span class="text-yellow-400 font-mono text-xs font-semibold">Corrigiendo exámenes...</span>
+    </div>
+    <div class="flex items-center gap-3 text-xs font-mono text-gray-400">
+      <span class="text-green-400">✓ {{ done_count }}</span>
+      <span class="text-yellow-400">⟳ {{ processing_subs | selectattr("status", "equalto", "processing") | list | length }}</span>
+      <span class="text-gray-500">⏳ {{ processing_subs | selectattr("status", "equalto", "pending") | list | length }}</span>
+      <span>/ {{ submissions | length }}</span>
+    </div>
+  </div>
+  <!-- Barra de progreso global -->
+  {% if submissions | length > 0 %}
+  {% set pct = ((done_count + error_count) / (submissions | length) * 100) | int %}
+  <div class="px-4 pt-2 pb-1 bg-gray-800">
+    <div class="w-full bg-gray-700 rounded-full h-1.5">
+      <div class="bg-yellow-400 h-1.5 rounded-full transition-all" style="width: {{ pct }}%"></div>
+    </div>
+    <div class="text-xs text-gray-500 font-mono mt-1 text-right">{{ pct }}% completado</div>
+  </div>
+  {% endif %}
+  <!-- Logs de cada submission en proceso -->
+  <div class="divide-y divide-gray-800 max-h-72 overflow-y-auto" id="grading-log">
+    {% for sub in processing_subs[:6] %}
+    {% set log_entries = sub.processing_log | from_json if sub.processing_log else [] %}
+    <div class="px-4 py-2">
+      <div class="flex items-center gap-2 mb-1">
+        {% if sub.status == "processing" %}
+        <span class="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse shrink-0"></span>
+        <span class="text-yellow-300 text-xs font-semibold truncate">{{ sub.source_filename }}</span>
+        {% else %}
+        <span class="w-1.5 h-1.5 rounded-full bg-gray-600 shrink-0"></span>
+        <span class="text-gray-500 text-xs truncate">{{ sub.source_filename }} <span class="text-gray-600">(en cola)</span></span>
+        {% endif %}
+      </div>
+      {% if log_entries %}
+      <div class="font-mono text-xs space-y-0.5 pl-3">
+        {% for entry in log_entries[-5:] %}
+        <div class="flex gap-2
+          {% if '✓' in entry.msg %}text-green-400
+          {% elif 'ERROR' in entry.msg or 'error' in entry.msg %}text-red-400
+          {% elif 'Corrigiendo' in entry.msg or 'Página' in entry.msg %}text-cyan-300
+          {% elif 'Alumno' in entry.msg %}text-blue-300
+          {% else %}text-gray-400{% endif %}">
+          <span class="text-gray-600 shrink-0">{{ entry.t }}</span>
+          <span class="truncate">{{ entry.msg }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% elif sub.status == "processing" %}
+      <div class="font-mono text-xs text-gray-600 pl-3 animate-pulse">Iniciando...</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% if processing_subs | length > 6 %}
+    <div class="px-4 py-2 text-xs text-gray-600 font-mono">
+      ... y {{ (processing_subs | length) - 6 }} examen(es) más en cola
+    </div>
+    {% endif %}
+  </div>
+  <div class="px-4 py-1.5 bg-gray-800 border-t border-gray-700 text-xs text-gray-600 text-center">
+    Actualización automática cada 4 segundos
+  </div>
+</div>
+<script>
+  document.getElementById('grading-log').scrollTop = document.getElementById('grading-log').scrollHeight;
+  setTimeout(function() { location.reload(); }, 4000);
+</script>
+{% endif %}
+
+<!-- Stats summary -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  <div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
+    <div class="text-2xl font-bold text-gray-900">{{ submissions|length }}</div>
+    <div class="text-xs text-gray-500">Total</div>
+  </div>
+  <div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
+    <div class="text-2xl font-bold text-green-600">{{ done_count }}</div>
+    <div class="text-xs text-gray-500">Procesados</div>
+  </div>
+  <div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
+    <div class="text-2xl font-bold text-yellow-600">{{ pending }}</div>
+    <div class="text-xs text-gray-500">Pendientes</div>
+  </div>
+  <div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
+    <div class="text-2xl font-bold text-red-600">{{ error_count }}</div>
+    <div class="text-xs text-gray-500">Errores</div>
+  </div>
+</div>
+
+<!-- Uso de tokens / coste estimado -->
+{% if token_summary and token_summary.grand.total > 0 %}
+<details class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 group">
+  <summary class="flex items-center justify-between px-5 py-3 cursor-pointer select-none">
+    <div class="flex items-center gap-3">
+      <span class="text-sm font-semibold text-gray-700">Uso de tokens IA</span>
+      <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono">
+        {{ "{:,}".format(token_summary.grand.total) }} tokens totales
+      </span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span class="text-sm font-bold text-emerald-700">
+        ~${{ "%.4f"|format(token_summary.grand.cost_usd) }} USD
+      </span>
+      <svg class="h-4 w-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </div>
+  </summary>
+  <div class="border-t border-gray-100 px-5 py-4">
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="text-gray-500 border-b border-gray-100">
+          <th class="text-left py-1 font-medium">Operación</th>
+          <th class="text-right py-1 font-medium">Llamadas API</th>
+          <th class="text-right py-1 font-medium">Tokens entrada</th>
+          <th class="text-right py-1 font-medium">Tokens salida</th>
+          <th class="text-right py-1 font-medium">Total tokens</th>
+          <th class="text-right py-1 font-medium">Coste est.</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for op, data in token_summary.by_op.items() %}
+        <tr class="text-gray-700">
+          <td class="py-1.5 font-medium">{{ data.label }}</td>
+          <td class="py-1.5 text-right font-mono text-gray-500">{{ data.calls }}</td>
+          <td class="py-1.5 text-right font-mono">{{ "{:,}".format(data.input) }}</td>
+          <td class="py-1.5 text-right font-mono">{{ "{:,}".format(data.output) }}</td>
+          <td class="py-1.5 text-right font-mono font-semibold">{{ "{:,}".format(data.total) }}</td>
+          <td class="py-1.5 text-right font-mono text-emerald-700">${{ "%.4f"|format(data.cost_usd) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="border-t border-gray-200 font-bold text-gray-800">
+          <td class="pt-2">Total convocatoria</td>
+          <td class="pt-2 text-right font-mono text-gray-500">{{ token_summary.grand.calls }}</td>
+          <td class="pt-2 text-right font-mono">{{ "{:,}".format(token_summary.grand.input) }}</td>
+          <td class="pt-2 text-right font-mono">{{ "{:,}".format(token_summary.grand.output) }}</td>
+          <td class="pt-2 text-right font-mono">{{ "{:,}".format(token_summary.grand.total) }}</td>
+          <td class="pt-2 text-right font-mono text-emerald-700">${{ "%.4f"|format(token_summary.grand.cost_usd) }}</td>
+        </tr>
+        {% if submissions | selectattr("status", "equalto", "done") | list | length > 0 %}
+        {% set done = submissions | selectattr("status", "equalto", "done") | list | length %}
+        <tr class="text-gray-400 text-xs">
+          <td colspan="5" class="pt-1">Coste medio por examen corregido</td>
+          <td class="pt-1 text-right font-mono text-gray-500">
+            ~${{ "%.4f"|format(token_summary.grand.cost_usd / done) }}
+          </td>
+        </tr>
+        {% endif %}
+      </tfoot>
+    </table>
+    <p class="text-xs text-gray-400 mt-3">
+      Precios de referencia (USD/millón de tokens): Flash $0.15 entrada / $0.60 salida · Pro $1.25 / $10.00.
+      Los precios reales pueden variar. Consulta <a href="https://ai.google.dev/pricing" target="_blank" class="underline">ai.google.dev/pricing</a>.
+    </p>
+  </div>
+</details>
+{% endif %}
+
+<!-- Table -->
+{% if submissions %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+  <table class="min-w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="text-left px-4 py-3 font-semibold text-gray-700">Alumno</th>
+        <th class="text-left px-4 py-3 font-semibold text-gray-700">Archivo</th>
+        <th class="text-center px-4 py-3 font-semibold text-gray-700">Modelo</th>
+        {% for col in all_columns %}
+        <th class="text-center px-3 py-3 font-semibold text-gray-700">{{ col }}</th>
+        {% endfor %}
+        <th class="text-center px-4 py-3 font-semibold text-gray-700">Total</th>
+        <th class="text-center px-4 py-3 font-semibold text-gray-700">Estado</th>
+        <th class="text-center px-4 py-3 font-semibold text-gray-700">Acciones</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for sub in submissions %}
+      {# Modelo: solo mostrar si parece un identificador corto (≤15 chars), no un título #}
+      {% set model_display = sub.exam_model if (sub.exam_model and sub.exam_model | length <= 15) else "—" %}
+      {# Normalización de nota si la convocatoria tiene max_total_points fijado #}
+      {% if session.max_total_points and sub.max_total_points and sub.max_total_points > 0 %}
+        {% set display_total = (sub.total_points / sub.max_total_points * session.max_total_points) | round(2) %}
+        {% set display_max   = session.max_total_points %}
+      {% else %}
+        {% set display_total = sub.total_points %}
+        {% set display_max   = sub.max_total_points %}
+      {% endif %}
+      <tr class="hover:bg-gray-50 transition">
+        <td class="px-4 py-3 font-medium">{{ sub.student_name or "—" }}</td>
+        <td class="px-4 py-3 text-gray-500 text-xs truncate max-w-xs">{{ sub.source_filename }}</td>
+        <td class="px-4 py-3 text-center text-gray-600">{{ model_display }}</td>
+
+        {% if sub.status == "done" %}
+          {% set parts_by_col = {} %}
+          {% for qr in sub.question_results %}
+            {% for pr in qr.part_results %}
+              {% if parts_by_col.update({pr.column_id: pr}) %}{% endif %}
+            {% endfor %}
+          {% endfor %}
+          {% for col in all_columns %}
+          {% set pr = parts_by_col.get(col) %}
+          <td class="px-3 py-3 text-center
+            {% if pr and pr.status == 'revision_manual' %}bg-orange-50 text-orange-800 font-semibold
+            {% elif pr and pr.status == 'correcto' %}text-green-700
+            {% elif pr and pr.status == 'incorrecto' %}text-red-600
+            {% else %}text-gray-400{% endif %}">
+            {% if pr %}{{ "%.2f"|format(pr.awarded_points or 0) }}{% else %}—{% endif %}
+          </td>
+          {% endfor %}
+          <td class="px-4 py-3 text-center font-bold
+            {% if display_total and display_max %}
+              {% if (display_total / display_max) >= 0.9 %}text-green-700
+              {% elif (display_total / display_max) >= 0.5 %}text-gray-900
+              {% else %}text-red-600{% endif %}
+            {% else %}text-gray-900{% endif %}">
+            {{ "%.2f"|format(display_total or 0) }} / {{ "%.2f"|format(display_max or 0) }}
+            {% if session.max_total_points and sub.max_total_points and sub.max_total_points != session.max_total_points %}
+            <span class="text-xs text-gray-400 font-normal">(orig: {{ "%.2f"|format(sub.total_points or 0) }}/{{ "%.2f"|format(sub.max_total_points or 0) }})</span>
+            {% endif %}
+          </td>
+        {% else %}
+          {% for col in all_columns %}
+          <td class="px-3 py-3 text-center text-gray-300">—</td>
+          {% endfor %}
+          <td class="px-4 py-3 text-center text-gray-300">—</td>
+        {% endif %}
+
+        <td class="px-4 py-3 text-center">
+          {% if sub.status == "done" %}
+          <span class="text-green-700 bg-green-100 px-2 py-0.5 rounded text-xs font-semibold">Hecho</span>
+          {% elif sub.status == "processing" %}
+          <span class="text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs font-semibold">Procesando</span>
+          {% elif sub.status == "pending" %}
+          <span class="text-yellow-700 bg-yellow-100 px-2 py-0.5 rounded text-xs font-semibold">Pendiente</span>
+          {% else %}
+          <span class="text-red-700 bg-red-100 px-2 py-0.5 rounded text-xs font-semibold">Error</span>
+          {% endif %}
+        </td>
+
+        <td class="px-4 py-3 text-center">
+          <a href="/submissions/{{ sub.id }}"
+             class="text-blue-600 hover:underline text-xs font-medium">Ver</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-center py-16 text-gray-400">
+  <p>No hay exámenes en esta convocatoria.</p>
+  <a href="/sessions/{{ session.id }}/upload" class="text-blue-600 hover:underline text-sm mt-2 inline-block">
+    Subir PDFs
+  </a>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Inicio — Examinia{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-8">
+  <h1 class="text-3xl font-bold text-gray-900">Convocatorias</h1>
+  <a href="/sessions/new"
+     class="bg-blue-700 hover:bg-blue-600 text-white px-5 py-2 rounded-lg font-semibold transition">
+    + Nueva convocatoria
+  </a>
+</div>
+
+{% if not session_stats %}
+<div class="text-center py-20 text-gray-400">
+  <p class="text-lg">No hay convocatorias todavía.</p>
+  <p class="text-sm mt-2">Crea una para empezar a subir exámenes.</p>
+</div>
+{% else %}
+<div class="grid gap-4">
+  {% for stat in session_stats %}
+  {% set s = stat.session %}
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col md:flex-row md:items-center gap-4">
+    <!-- Info principal -->
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2 mb-1">
+        <h2 class="text-lg font-semibold text-gray-900 truncate">{{ s.name }}</h2>
+        {% if s.status == "archived" %}
+        <span class="text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-xs">Archivada</span>
+        {% else %}
+        <span class="text-green-700 bg-green-100 px-2 py-0.5 rounded text-xs font-semibold">Abierta</span>
+        {% endif %}
+      </div>
+      <div class="text-sm text-gray-500 flex flex-wrap gap-3">
+        {% if s.date %}<span>{{ s.date }}</span>{% endif %}
+        {% if s.course_level %}
+        <span>{{ {"1o_bachillerato": "1º Bach.", "2o_bachillerato": "2º Bach."}.get(s.course_level, s.course_level) }}</span>
+        {% endif %}
+        {% if s.subject %}<span>{{ s.subject }}</span>{% endif %}
+      </div>
+      {% if s.notes %}
+      <p class="text-xs text-gray-400 mt-1 truncate">{{ s.notes }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Estadísticas -->
+    <div class="flex gap-6 text-center shrink-0">
+      <div>
+        <div class="text-2xl font-bold text-gray-900">{{ stat.total }}</div>
+        <div class="text-xs text-gray-500">Alumnos</div>
+      </div>
+      <div>
+        <div class="text-2xl font-bold text-green-600">{{ stat.done }}</div>
+        <div class="text-xs text-gray-500">Procesados</div>
+      </div>
+      {% if stat.pending > 0 %}
+      <div>
+        <div class="text-2xl font-bold text-yellow-600">{{ stat.pending }}</div>
+        <div class="text-xs text-gray-500">Pendientes</div>
+      </div>
+      {% endif %}
+      {% if stat.errors > 0 %}
+      <div>
+        <div class="text-2xl font-bold text-red-600">{{ stat.errors }}</div>
+        <div class="text-xs text-gray-500">Errores</div>
+      </div>
+      {% endif %}
+      {% if stat.avg_score is not none %}
+      <div>
+        <div class="text-2xl font-bold text-blue-700">{{ stat.avg_score }}</div>
+        <div class="text-xs text-gray-500">Media</div>
+      </div>
+      {% endif %}
+      {% if stat.revision_count > 0 %}
+      <div>
+        <div class="text-2xl font-bold text-orange-600">{{ stat.revision_count }}</div>
+        <div class="text-xs text-gray-500">Revisión</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Acciones -->
+    <div class="flex gap-2 shrink-0">
+      <a href="/sessions/{{ s.id }}"
+         class="bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+        Ver resultados
+      </a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

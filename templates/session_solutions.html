@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+{% block title %}Soluciones — {{ session.name }}{% endblock %}
+
+{% block content %}
+{# "en marcha" = hay filas pendientes O se acaba de iniciar (current_step marcado pero aún sin filas) #}
+{% set starting_up = current_step and total == 0 %}
+{% if solving_in_progress or starting_up %}
+{# ══════════════════════════════════════════════════════════════════
+   VISTA "EN PROGRESO" — solo log, sin botones
+══════════════════════════════════════════════════════════════════ #}
+<div class="mb-4">
+  <a href="/sessions/{{ session.id }}" class="text-blue-600 hover:underline text-sm">&larr; {{ session.name }}</a>
+</div>
+
+{% set ai_solved_count = solutions | selectattr("status", "in", ["ai_solved","validated","manual"]) | list | length %}
+{% set ai_failed_count = solutions | selectattr("status", "equalto", "ai_failed") | list | length %}
+{% set ai_pending_count = solutions | selectattr("status", "equalto", "ai_pending") | list | length %}
+{% set completed = ai_solved_count + ai_failed_count %}
+{% set pct = ((completed / total * 100) | int) if total > 0 else 0 %}
+{% set log_entries = session_log | from_json if session_log else [] %}
+
+<div class="bg-gray-900 rounded-xl overflow-hidden border border-gray-700 shadow-lg">
+  <!-- Cabecera -->
+  <div class="flex items-center justify-between px-5 py-3 bg-gray-800 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+      <svg class="animate-spin h-4 w-4 text-green-400 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+      </svg>
+      <span class="text-green-400 font-mono text-sm font-semibold">
+        {% if solution_mode == "teacher" %}Extrayendo soluciones del PDF...{% else %}Resolviendo preguntas con IA...{% endif %}
+      </span>
+    </div>
+    {% if total > 0 %}
+    <div class="flex items-center gap-3">
+      <span class="text-xs text-gray-400 font-mono">{{ completed }}/{{ total }} apartados</span>
+      <div class="w-40 bg-gray-700 rounded-full h-2">
+        <div class="bg-green-500 h-2 rounded-full transition-all" style="width: {{ pct }}%"></div>
+      </div>
+      <span class="text-xs text-green-400 font-mono font-bold w-9 text-right">{{ pct }}%</span>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Log a pantalla completa -->
+  <div class="px-5 py-4 font-mono text-xs space-y-1 h-[60vh] overflow-y-auto" id="log-container">
+    {% if log_entries %}
+      {% for entry in log_entries %}
+      <div class="flex gap-3
+        {% if entry.msg.startswith('  ✓') %}text-green-400 pl-4
+        {% elif entry.msg.startswith('  ⚠') %}text-orange-400 pl-4
+        {% elif '✓' in entry.msg and 'resuelto' not in entry.msg %}text-green-300
+        {% elif '⚠' in entry.msg or 'ERROR' in entry.msg or 'error' in entry.msg %}text-red-400
+        {% elif 'Resolviendo' in entry.msg or '%]' in entry.msg %}text-yellow-300
+        {% elif 'Página' in entry.msg %}text-cyan-300
+        {% elif 'analizado' in entry.msg or 'Comenzando' in entry.msg %}text-blue-300
+        {% else %}text-gray-300{% endif %}">
+        <span class="text-gray-600 shrink-0 w-16">{{ entry.t }}</span>
+        <span>{{ entry.msg }}</span>
+      </div>
+      {% endfor %}
+    {% else %}
+      <!-- Aún no hay entradas: el hilo acaba de arrancar -->
+      <div class="text-gray-400 mt-4">
+        {% if current_step %}{{ current_step }}{% else %}Iniciando...{% endif %}
+      </div>
+    {% endif %}
+    <div class="flex gap-3 text-gray-500 animate-pulse mt-2">
+      <span class="shrink-0 w-16">···</span>
+      <span>Esperando respuesta de la IA...</span>
+    </div>
+  </div>
+
+  <!-- Pie -->
+  <div class="px-5 py-2 bg-gray-800 border-t border-gray-700 text-xs text-gray-500 text-center">
+    La página se actualiza automáticamente cada 4 segundos. No cierres esta ventana.
+  </div>
+</div>
+
+<script>
+  var lc = document.getElementById('log-container');
+  if (lc) lc.scrollTop = lc.scrollHeight;
+  setTimeout(function(){ location.reload(); }, 4000);
+</script>
+
+{% else %}
+{# ══════════════════════════════════════════════════════════════════
+   VISTA NORMAL — header, opciones y lista de soluciones
+══════════════════════════════════════════════════════════════════ #}
+<div class="mb-6">
+  <a href="/sessions/{{ session.id }}" class="text-blue-600 hover:underline text-sm">&larr; {{ session.name }}</a>
+  <h1 class="text-2xl font-bold text-gray-900 mt-2">Soluciones del examen</h1>
+  <p class="text-sm text-gray-500 mt-1">
+    {% if solution_mode == "teacher" %}
+    Has subido las soluciones del profesor. Revisa que las respuestas extraídas son correctas y valídalas antes de corregir los exámenes.
+    {% else %}
+    Revisa las soluciones generadas por la IA. Corrígelas si es necesario y valídalas antes de corregir los exámenes.
+    Si la IA no puede resolver algún apartado, sube una imagen con la solución correcta.
+    {% endif %}
+  </p>
+</div>
+
+<!-- Definir contadores -->
+{% set ai_solved_count = solutions | selectattr("status", "in", ["ai_solved","validated","manual"]) | list | length %}
+{% set ai_failed_count = solutions | selectattr("status", "equalto", "ai_failed") | list | length %}
+{% set ai_pending_count = solutions | selectattr("status", "equalto", "ai_pending") | list | length %}
+
+<!-- Log compacto post-proceso (solo visible cuando ya terminó) -->
+{% set log_entries = session_log | from_json if session_log else [] %}
+{% if log_entries and total > 0 %}
+{% set completed = ai_solved_count + ai_failed_count %}
+{% set pct = ((completed / total * 100) | int) if total > 0 else 0 %}
+<div class="bg-gray-900 rounded-xl mb-5 overflow-hidden border border-gray-700">
+  <div class="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+    <span class="text-green-400 font-mono text-xs font-semibold">✓ Proceso completado</span>
+    <div class="flex items-center gap-3">
+      <span class="text-xs text-gray-400 font-mono">{{ completed }}/{{ total }} apartados</span>
+      <div class="w-32 bg-gray-700 rounded-full h-1.5">
+        <div class="bg-green-500 h-1.5 rounded-full" style="width: {{ pct }}%"></div>
+      </div>
+      <span class="text-xs text-green-400 font-mono font-bold w-8 text-right">{{ pct }}%</span>
+    </div>
+  </div>
+  <div class="px-4 py-3 font-mono text-xs space-y-0.5 max-h-40 overflow-y-auto" id="log-container">
+    {% for entry in log_entries %}
+    <div class="flex gap-3
+      {% if entry.msg.startswith('  ✓') %}text-green-400 pl-4
+      {% elif entry.msg.startswith('  ⚠') %}text-orange-400 pl-4
+      {% elif '✓' in entry.msg and 'resuelto' not in entry.msg %}text-green-300
+      {% elif '⚠' in entry.msg or 'ERROR' in entry.msg or 'error' in entry.msg %}text-red-400
+      {% elif 'Resolviendo' in entry.msg or '%]' in entry.msg %}text-yellow-300
+      {% elif 'Página' in entry.msg %}text-cyan-300
+      {% elif 'analizado' in entry.msg or 'Comenzando' in entry.msg %}text-blue-300
+      {% else %}text-gray-300{% endif %}">
+      <span class="text-gray-500 shrink-0 w-16">{{ entry.t }}</span>
+      <span>{{ entry.msg }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+<script>
+  var lc = document.getElementById('log-container');
+  if (lc) lc.scrollTop = lc.scrollHeight;
+</script>
+{% endif %}
+
+{% if total == 0 %}
+{% if has_pending_pdf %}
+<!-- Elección de modo cuando no hay soluciones aún -->
+<div class="mb-5">
+  <p class="text-sm font-semibold text-gray-700 mb-3">¿Cómo quieres obtener las soluciones del examen?</p>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+    <!-- Opción A: IA resuelve -->
+    <div class="bg-white border-2 border-blue-200 rounded-xl p-5 flex flex-col gap-3">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl">🤖</span>
+        <span class="font-bold text-gray-800">La IA resuelve las preguntas</span>
+      </div>
+      <p class="text-sm text-gray-500">
+        La IA analiza el examen y resuelve cada ejercicio. Tú revisas y validas (o corriges) las respuestas antes de corregir.
+        Si no puede resolver algún apartado, puedes subir una imagen con la solución.
+      </p>
+      <form method="post" action="/sessions/{{ session.id }}/solutions/extract" class="mt-auto">
+        <button class="w-full bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+          Extraer y resolver con IA →
+        </button>
+      </form>
+    </div>
+
+    <!-- Opción B: Profesor sube PDF -->
+    <div class="bg-white border-2 border-green-200 rounded-xl p-5 flex flex-col gap-3">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl">📄</span>
+        <span class="font-bold text-gray-800">Subir soluciones del profesor</span>
+      </div>
+      <p class="text-sm text-gray-500">
+        Sube el PDF con los ejercicios ya resueltos. La IA extrae las respuestas automáticamente y las presenta para que las valides.
+      </p>
+      <form method="post" action="/sessions/{{ session.id }}/solutions/upload-teacher-pdf"
+            enctype="multipart/form-data" class="mt-auto space-y-2">
+        <input type="file" name="teacher_pdf" accept=".pdf,image/*" required
+               class="w-full text-sm text-gray-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
+        <button type="submit"
+                class="w-full bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+          Subir PDF de soluciones →
+        </button>
+      </form>
+    </div>
+
+  </div>
+</div>
+{% else %}
+<div class="bg-gray-50 border border-gray-200 rounded-xl px-5 py-4 mb-5 text-sm text-gray-600">
+  Primero <a href="/sessions/{{ session.id }}/upload" class="text-blue-600 hover:underline">sube al menos un PDF</a> de examen.
+</div>
+{% endif %}
+
+{% else %}
+<!-- Resumen de validación -->
+<div class="bg-white border rounded-xl px-5 py-4 mb-5 flex flex-wrap items-center gap-6
+  {% if validated == total %}border-green-300 bg-green-50{% else %}border-gray-200{% endif %}">
+  <div class="flex gap-5 text-sm">
+    <div class="text-center">
+      <div class="text-2xl font-bold text-green-700">{{ validated }}</div>
+      <div class="text-xs text-gray-500">Validadas</div>
+    </div>
+    <div class="text-center">
+      <div class="text-2xl font-bold text-yellow-600">{{ total - validated - ai_failed_count }}</div>
+      <div class="text-xs text-gray-500">Sin validar</div>
+    </div>
+    {% if ai_failed_count > 0 %}
+    <div class="text-center">
+      <div class="text-2xl font-bold text-red-600">{{ ai_failed_count }}</div>
+      <div class="text-xs text-gray-500">IA no resuelta</div>
+    </div>
+    {% endif %}
+  </div>
+  {% if validated == total %}
+  <div class="flex items-center gap-2 text-green-700 font-semibold">
+    <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 00-1.414 0L8 12.586 4.707 9.293a1 1 0 00-1.414 1.414l4 4a1 1 0 001.414 0l8-8a1 1 0 000-1.414z" clip-rule="evenodd"/></svg>
+    Todo validado
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Acciones principales -->
+{% if total > 0 %}
+<div class="flex flex-wrap gap-3 mb-6">
+  {% set pending_validation = solutions | selectattr("status", "equalto", "ai_solved") | selectattr("final_answer") | list | length %}
+  {% if pending_validation > 0 and not solving_in_progress %}
+  <form method="post" action="/sessions/{{ session.id }}/solutions/validate-all">
+    <button class="bg-yellow-500 hover:bg-yellow-400 text-white px-5 py-2 rounded-lg text-sm font-semibold transition">
+      ✓ Validar todas ({{ pending_validation }})
+    </button>
+  </form>
+  {% endif %}
+
+  {% if validated == total and total > 0 %}
+  <form method="post" action="/sessions/{{ session.id }}/start-grading">
+    <button class="bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-lg text-sm font-semibold transition">
+      Iniciar corrección de exámenes →
+    </button>
+  </form>
+  {% endif %}
+
+  {% if has_pending_pdf and not solving_in_progress %}
+  <div class="flex items-center gap-2 ml-auto">
+    {% if solution_mode == "teacher" %}
+    <form method="post" action="/sessions/{{ session.id }}/solutions/upload-teacher-pdf"
+          enctype="multipart/form-data" class="flex items-center gap-2">
+      <input type="file" name="teacher_pdf" accept=".pdf,image/*" required
+             class="text-xs text-gray-600 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
+      <button type="submit" class="border border-green-500 text-green-700 hover:bg-green-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+        Re-subir PDF
+      </button>
+    </form>
+    {% else %}
+    <form method="post" action="/sessions/{{ session.id }}/solutions/extract">
+      <button class="border border-blue-500 text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+        Volver a extraer con IA
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <a href="/sessions/{{ session.id }}" class="border border-gray-300 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm transition">
+    Volver a la convocatoria
+  </a>
+</div>
+{% endif %}
+
+<!-- Lista de soluciones -->
+{% if solutions %}
+<div class="space-y-4">
+  {% for sol in solutions %}
+  <div class="bg-white rounded-xl border shadow-sm overflow-hidden
+    {% if sol.status in ('validated','manual') %}border-green-300
+    {% elif sol.status == 'ai_failed' %}border-red-300
+    {% else %}border-gray-200{% endif %}">
+
+    <!-- Cabecera -->
+    <div class="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-100">
+      <div class="flex items-center gap-3">
+        <span class="font-bold text-gray-800">Ejercicio {{ sol.question_id }} — Apartado {{ sol.part_id }}</span>
+        {% if sol.status == "validated" %}
+        <span class="text-green-700 bg-green-100 px-2 py-0.5 rounded text-xs font-semibold">Validado</span>
+        {% elif sol.status == "manual" %}
+        <span class="text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs font-semibold">Manual (imagen)</span>
+        {% elif sol.status == "ai_solved" %}
+        <span class="text-yellow-700 bg-yellow-100 px-2 py-0.5 rounded text-xs font-semibold">Pendiente validación</span>
+        {% elif sol.status == "ai_failed" %}
+        <span class="text-red-700 bg-red-100 px-2 py-0.5 rounded text-xs font-semibold">IA no pudo resolver</span>
+        {% else %}
+        <span class="text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-xs">Procesando...</span>
+        {% endif %}
+      </div>
+      <!-- Botón para colapsar/expandir -->
+      <button onclick="toggleSol({{ sol.id }})"
+              class="text-xs text-blue-600 hover:underline" id="btn-{{ sol.id }}">
+        {% if sol.status in ('validated','manual') %}Ver / Editar{% else %}Editar{% endif %}
+      </button>
+    </div>
+
+    <!-- Enunciado -->
+    {% if sol.question_statement or sol.part_statement %}
+    <div class="px-5 py-2 text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+      {% if sol.question_statement %}<span class="font-medium">Enunciado:</span> {{ sol.question_statement }}{% endif %}
+      {% if sol.part_statement and sol.part_statement != sol.question_statement %}
+      <br><span class="font-medium">Apartado:</span> {{ sol.part_statement }}
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Respuesta actual (siempre visible) -->
+    {% if sol.final_answer %}
+    <div class="px-5 py-3 flex items-start gap-3">
+      <span class="text-xs font-semibold text-gray-500 mt-0.5 shrink-0">Respuesta:</span>
+      <span class="font-mono text-sm text-gray-800 bg-gray-50 rounded px-2 py-1 border border-gray-200 flex-1">{{ sol.final_answer }}</span>
+    </div>
+    {% elif sol.status == "ai_failed" %}
+    <div class="px-5 py-3 text-sm text-red-600 italic">
+      La IA no pudo resolver este apartado. Valida manualmente o sube una imagen con la solución.
+    </div>
+    {% endif %}
+
+    <!-- Panel editable (colapsado por defecto si ya está validado) -->
+    <div id="sol-{{ sol.id }}"
+         class="{% if sol.status in ('validated','manual') %}hidden{% endif %} border-t border-gray-100">
+      <div class="p-5 space-y-4">
+
+        <!-- Solución de la IA (solo informativa) -->
+        {% if sol.solved_json %}
+        {% set solved = sol.solved_json | from_json %}
+        <div class="bg-blue-50 rounded-lg p-3 text-xs text-blue-800 space-y-1">
+          <div class="font-semibold text-blue-900 mb-1">Solución propuesta por la IA:</div>
+          <div><span class="font-medium">Respuesta:</span> {{ solved.get('solved_final_answer', '—') }}</div>
+          {% if solved.get('accepted_equivalents') %}
+          <div><span class="font-medium">Equivalentes:</span> {{ solved.get('accepted_equivalents') | join(', ') }}</div>
+          {% endif %}
+          {% if solved.get('expected_steps') %}
+          <div><span class="font-medium">Pasos:</span> {{ solved.get('expected_steps') | join(' → ') }}</div>
+          {% endif %}
+          <div><span class="font-medium">Confianza:</span> {{ "%.0f%%"|format((solved.get('confidence', 0) * 100)) }}</div>
+        </div>
+        {% endif %}
+
+        <!-- Formulario de validación -->
+        <form method="post" action="/sessions/{{ session.id }}/solutions/{{ sol.id }}/validate">
+          <div class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Respuesta correcta final <span class="text-red-500">*</span>
+              </label>
+              <input type="text" name="final_answer"
+                     value="{{ sol.final_answer or (sol.solved_json | from_json).get('solved_final_answer', '') if sol.solved_json else '' }}"
+                     required placeholder="Ej: x = 2, f'(x) = 2x+1, I = x^3/3 + C"
+                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Notas (opcional)</label>
+              <input type="text" name="teacher_notes" value="{{ sol.teacher_notes or '' }}"
+                     placeholder="Criterios de corrección adicionales..."
+                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button type="submit"
+                    class="bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-lg text-sm font-semibold transition">
+              ✓ Validar solución
+            </button>
+          </div>
+        </form>
+
+        <!-- Subir imagen -->
+        <div class="border-t border-gray-100 pt-4">
+          <p class="text-xs text-gray-500 mb-2">O sube una imagen con la solución correcta y la IA extraerá la respuesta automáticamente:</p>
+          <form method="post" action="/sessions/{{ session.id }}/solutions/{{ sol.id }}/upload-image"
+                enctype="multipart/form-data" class="flex items-center gap-3">
+            <input type="file" name="image" accept="image/*,.pdf"
+                   class="text-sm text-gray-600 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+            <button type="submit"
+                    class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-lg text-sm transition">
+              Subir imagen
+            </button>
+          </form>
+          {% if sol.solution_image_path %}
+          <p class="text-xs text-gray-400 mt-1">Imagen guardada: {{ sol.solution_image_path | basename }}</p>
+          {% endif %}
+        </div>
+
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+function toggleSol(id) {
+  const panel = document.getElementById('sol-' + id);
+  const btn = document.getElementById('btn-' + id);
+  if (panel.classList.contains('hidden')) {
+    panel.classList.remove('hidden');
+    btn.textContent = 'Cerrar';
+  } else {
+    panel.classList.add('hidden');
+    btn.textContent = 'Ver / Editar';
+  }
+}
+</script>
+
+{% endif %}{# fin del bloque else (vista normal) #}
+{% endblock %}

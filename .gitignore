@@ -1,0 +1,33 @@
+# Entorno y secretos
+.env
+contraseña.txt
+
+# Base de datos
+corrector.db
+corrector.db-shm
+corrector.db-wal
+
+# PDFs de exámenes y uploads
+*.pdf
+web_uploads/
+examenes/
+salidas/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Temporales
+.tmp/
+*.log
+
+# IDEs
+.vscode/
+.idea/

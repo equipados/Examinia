@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Subir PDFs — {{ session.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto">
+  <div class="mb-6">
+    <a href="/sessions/{{ session.id }}" class="text-blue-600 hover:underline text-sm">&larr; {{ session.name }}</a>
+    <h1 class="text-2xl font-bold text-gray-900 mt-2">Subir exámenes</h1>
+    <p class="text-sm text-gray-500 mt-1">Sube uno o varios PDFs. Cada PDF debe ser el examen de un único alumno.</p>
+  </div>
+
+  <form method="post" action="/sessions/{{ session.id }}/upload" enctype="multipart/form-data"
+        class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+
+    <!-- Drop zone -->
+    <div id="drop-zone"
+         class="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center hover:border-blue-400 transition cursor-pointer"
+         onclick="document.getElementById('file-input').click()">
+      <div class="text-gray-400 text-4xl mb-3">📄</div>
+      <p class="text-gray-600 font-medium">Arrastra los PDFs aquí o haz clic para seleccionar</p>
+      <p class="text-xs text-gray-400 mt-1">Solo archivos .pdf</p>
+      <input id="file-input" name="files" type="file" accept=".pdf" multiple class="hidden"
+             onchange="showFiles(this.files)">
+    </div>
+
+    <!-- Selected files preview -->
+    <div id="file-list" class="mt-4 space-y-1 text-sm text-gray-700 hidden"></div>
+
+    <div class="flex gap-3 mt-6">
+      <button type="submit"
+              class="bg-blue-700 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold transition">
+        Subir y procesar
+      </button>
+      <a href="/sessions/{{ session.id }}"
+         class="px-6 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition text-sm font-semibold">
+        Cancelar
+      </a>
+    </div>
+  </form>
+</div>
+
+<script>
+function showFiles(files) {
+  const list = document.getElementById('file-list');
+  list.innerHTML = '';
+  if (files.length === 0) { list.classList.add('hidden'); return; }
+  list.classList.remove('hidden');
+  for (const f of files) {
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2 bg-gray-50 rounded px-3 py-1.5 border border-gray-200';
+    div.textContent = f.name;
+    list.appendChild(div);
+  }
+}
+
+// Drag and drop
+const zone = document.getElementById('drop-zone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('border-blue-500'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('border-blue-500'));
+zone.addEventListener('drop', e => {
+  e.preventDefault();
+  zone.classList.remove('border-blue-500');
+  const input = document.getElementById('file-input');
+  input.files = e.dataTransfer.files;
+  showFiles(input.files);
+});
+</script>
+{% endblock %}
