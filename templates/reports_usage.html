@@ -116,7 +116,13 @@
           <tbody>
             {% for m in op.models %}
             <tr class="text-gray-600 border-b border-gray-50 last:border-0">
-              <td class="py-1 pl-3 font-mono text-blue-700">{{ m.model }}</td>
+              <td class="py-1 pl-3 font-mono">
+                <span class="{% if m.provider == 'OpenAI' %}text-green-700{% else %}text-blue-700{% endif %}">{{ m.model }}</span>
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded font-sans
+                  {% if m.provider == 'OpenAI' %}bg-green-50 text-green-600{% else %}bg-blue-50 text-blue-500{% endif %}">
+                  {{ m.provider }}
+                </span>
+              </td>
               <td class="py-1 text-right font-mono text-gray-500">{{ m.calls }}</td>
               <td class="py-1 text-right font-mono">{{ "{:,}".format(m.input) }}</td>
               <td class="py-1 text-right font-mono">{{ "{:,}".format(m.output) }}</td>
@@ -193,9 +199,10 @@
 </div>
 
 <p class="text-xs text-gray-400 mt-4 text-center">
-  Precios de referencia (Flash 0,14 €/0,55 € · Pro 1,15 €/9,20 € por millón de tokens, conversión USD→EUR aprox. 0,92).
-  Los precios reales pueden variar. Consulta
-  <a href="https://ai.google.dev/pricing" target="_blank" class="underline">ai.google.dev/pricing</a>.
+  Precios de referencia entrada/salida por millón de tokens (conversión USD→EUR aprox. 0,92):
+  <span class="text-blue-400">Gemini Flash 0,14 €/0,55 € · Pro 1,15 €/9,20 €</span> ·
+  <span class="text-green-400">GPT-4o 2,30 €/9,20 € · o4-mini 1,01 €/4,05 €</span>.
+  Los precios reales pueden variar.
 </p>
 
 {% endif %}

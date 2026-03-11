@@ -272,21 +272,9 @@ def download_excel(
 
 
 # Precios aproximados por millón de tokens (USD) — actualizar si cambian
-_TOKEN_PRICES: dict[str, dict[str, float]] = {
-    "gemini-2.5-pro":   {"input": 1.25,  "output": 10.0},
-    "gemini-2.5-flash": {"input": 0.15,  "output": 0.60},
-    "gemini-2.0-flash": {"input": 0.10,  "output": 0.40},
-    "gemini-1.5-pro":   {"input": 1.25,  "output": 5.00},
-    "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
-}
+from app.pricing import TOKEN_PRICES as _TOKEN_PRICES, OP_LABELS as _OP_LABELS, cost_eur as _cost_eur, provider_of as _provider_of
 
 _USD_TO_EUR = 0.92
-
-_OP_LABELS = {
-    "extract_solutions":  "Extracción IA",
-    "extract_teacher_pdf": "PDF profesor",
-    "grade_submission":   "Corrección",
-}
 
 
 def _build_token_summary(rows) -> dict:
@@ -303,12 +291,7 @@ def _build_token_summary(rows) -> dict:
         entry["output"] += r.output_tokens
         entry["total"] += r.total_tokens
         entry["calls"] += r.api_calls
-        # Coste estimado
-        prices = next(
-            (v for k, v in _TOKEN_PRICES.items() if r.model.startswith(k)),
-            {"input": 0.0, "output": 0.0},
-        )
-        cost = (r.input_tokens * prices["input"] + r.output_tokens * prices["output"]) / 1_000_000 * _USD_TO_EUR
+        cost = _cost_eur(r.model, r.input_tokens, r.output_tokens)
         entry["cost_usd"] += cost
         grand["input"] += r.input_tokens
         grand["output"] += r.output_tokens
@@ -629,20 +612,7 @@ def _snapshot_session(session: ExamSession, db: Session, deleted: bool = False) 
 
     token_rows = db.query(TokenUsage).filter(TokenUsage.session_id == session.id).all()
     total_tokens = sum(r.total_tokens for r in token_rows)
-    _USD_TO_EUR = 0.92
-    _PRICES = {
-        "gemini-2.5-pro":   {"input": 1.25,  "output": 10.0},
-        "gemini-2.5-flash": {"input": 0.15,  "output": 0.60},
-        "gemini-2.0-flash": {"input": 0.10,  "output": 0.40},
-        "gemini-1.5-pro":   {"input": 1.25,  "output": 5.00},
-        "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
-    }
-    total_cost = sum(
-        (r.input_tokens * next((v for k, v in _PRICES.items() if r.model.startswith(k)), {"input": 0.0, "output": 0.0})["input"]
-         + r.output_tokens * next((v for k, v in _PRICES.items() if r.model.startswith(k)), {"input": 0.0, "output": 0.0})["output"])
-        / 1_000_000 * _USD_TO_EUR
-        for r in token_rows
-    )
+    total_cost = sum(_cost_eur(r.model, r.input_tokens, r.output_tokens) for r in token_rows)
 
     now = datetime.now(timezone.utc)
     existing = db.query(SessionHistory).filter(SessionHistory.session_id == session.id).first()

@@ -11,31 +11,7 @@ from app.db_models import ExamSession, SessionHistory, Submission, TokenUsage, U
 
 router = APIRouter(prefix="/reports")
 
-# Precios por millón de tokens (USD)
-_TOKEN_PRICES: dict[str, dict[str, float]] = {
-    "gemini-2.5-pro":   {"input": 1.25,  "output": 10.0},
-    "gemini-2.5-flash": {"input": 0.15,  "output": 0.60},
-    "gemini-2.0-flash": {"input": 0.10,  "output": 0.40},
-    "gemini-1.5-pro":   {"input": 1.25,  "output": 5.00},
-    "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
-}
-
-_USD_TO_EUR = 0.92
-
-_OP_LABELS = {
-    "extract_solutions":   "Extracción IA",
-    "extract_teacher_pdf": "PDF profesor",
-    "grade_submission":    "Corrección",
-}
-
-
-def _cost(model: str, inp: int, out: int) -> float:
-    prices = next(
-        (v for k, v in _TOKEN_PRICES.items() if model.startswith(k)),
-        {"input": 0.0, "output": 0.0},
-    )
-    usd = (inp * prices["input"] + out * prices["output"]) / 1_000_000
-    return usd * _USD_TO_EUR
+from app.pricing import TOKEN_PRICES as _TOKEN_PRICES, OP_LABELS as _OP_LABELS, cost_eur as _cost, provider_of as _provider_of
 
 
 @router.get("/usage", response_class=HTMLResponse)
@@ -70,6 +46,7 @@ def usage_report(
         model_entry = op_entry.setdefault(row.model, _zero())
 
         c = _cost(row.model, row.input_tokens, row.output_tokens)
+        mdata["provider"] = _provider_of(row.model)
         _add(model_entry, row.input_tokens, row.output_tokens, row.total_tokens, row.api_calls, c)
         _add(entry["totals"], row.input_tokens, row.output_tokens, row.total_tokens, row.api_calls, c)
 
