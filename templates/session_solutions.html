@@ -33,11 +33,11 @@
     </div>
     {% if total > 0 %}
     <div class="flex items-center gap-3">
-      <span class="text-xs text-gray-400 font-mono">{{ completed }}/{{ total }} apartados</span>
+      <span class="text-xs text-gray-400 font-mono" id="progress-cnt">{{ completed }}/{{ total }} apartados</span>
       <div class="w-40 bg-gray-700 rounded-full h-2">
-        <div class="bg-green-500 h-2 rounded-full transition-all" style="width: {{ pct }}%"></div>
+        <div class="bg-green-500 h-2 rounded-full transition-all" id="progress-bar" style="width: {{ pct }}%"></div>
       </div>
-      <span class="text-xs text-green-400 font-mono font-bold w-9 text-right">{{ pct }}%</span>
+      <span class="text-xs text-green-400 font-mono font-bold w-9 text-right" id="progress-pct">{{ pct }}%</span>
     </div>
     {% endif %}
   </div>
@@ -78,9 +78,62 @@
 </div>
 
 <script>
+(function() {
   var lc = document.getElementById('log-container');
   if (lc) lc.scrollTop = lc.scrollHeight;
-  setTimeout(function(){ location.reload(); }, 4000);
+
+  var CSS = {
+    'text-green-400 pl-4': function(m){ return m.startsWith('  ✓'); },
+    'text-orange-400 pl-4': function(m){ return m.startsWith('  ⚠'); },
+    'text-green-300': function(m){ return m.includes('✓') && !m.includes('resuelto'); },
+    'text-red-400': function(m){ return m.includes('⚠') || m.includes('ERROR') || m.includes('error'); },
+    'text-yellow-300': function(m){ return m.includes('Resolviendo') || m.includes('%]'); },
+    'text-cyan-300': function(m){ return m.includes('Página'); },
+    'text-blue-300': function(m){ return m.includes('analizado') || m.includes('Comenzando'); },
+  };
+  function lineClass(msg) {
+    for (var cls in CSS) { if (CSS[cls](msg)) return cls; }
+    return 'text-gray-300';
+  }
+
+  function renderLog(entries) {
+    if (!lc) return;
+    var html = '';
+    entries.forEach(function(e) {
+      html += '<div class="flex gap-3 ' + lineClass(e.msg) + '">'
+            + '<span class="text-gray-600 shrink-0 w-16">' + e.t + '</span>'
+            + '<span>' + e.msg.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span></div>';
+    });
+    html += '<div class="flex gap-3 text-gray-500 animate-pulse mt-2"><span class="shrink-0 w-16">···</span><span>Esperando respuesta de la IA...</span></div>';
+    lc.innerHTML = html;
+    lc.scrollTop = lc.scrollHeight;
+  }
+
+  function poll() {
+    fetch('/sessions/{{ session.id }}/log-poll', {credentials: 'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        if (data.log_entries && data.log_entries.length) renderLog(data.log_entries);
+        // Actualizar barra de progreso si existe
+        var bar = document.getElementById('progress-bar');
+        var pct = data.total > 0 ? Math.round(data.completed / data.total * 100) : 0;
+        if (bar) bar.style.width = pct + '%';
+        var pctEl = document.getElementById('progress-pct');
+        if (pctEl) pctEl.textContent = pct + '%';
+        var cntEl = document.getElementById('progress-cnt');
+        if (cntEl) cntEl.textContent = data.completed + '/' + data.total + ' apartados';
+
+        if (data.solving_in_progress) {
+          setTimeout(poll, 2000);
+        } else {
+          location.reload();  // proceso terminado → recarga una sola vez para mostrar resultados
+        }
+      })
+      .catch(function(){ setTimeout(poll, 4000); });
+  }
+
+  setTimeout(poll, 2000);
+})();
 </script>
 
 {% else %}

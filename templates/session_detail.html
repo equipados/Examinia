@@ -164,7 +164,7 @@
       </svg>
       <span class="text-yellow-400 font-mono text-xs font-semibold">Corrigiendo exámenes...</span>
     </div>
-    <div class="flex items-center gap-3 text-xs font-mono text-gray-400">
+    <div class="flex items-center gap-3 text-xs font-mono text-gray-400" id="grading-header">
       <span class="text-green-400">✓ {{ done_count }}</span>
       <span class="text-yellow-400">⟳ {{ processing_subs | selectattr("status", "equalto", "processing") | list | length }}</span>
       <span class="text-gray-500">⏳ {{ processing_subs | selectattr("status", "equalto", "pending") | list | length }}</span>
@@ -176,9 +176,9 @@
   {% set pct = ((done_count + error_count) / (submissions | length) * 100) | int %}
   <div class="px-4 pt-2 pb-1 bg-gray-800">
     <div class="w-full bg-gray-700 rounded-full h-1.5">
-      <div class="bg-yellow-400 h-1.5 rounded-full transition-all" style="width: {{ pct }}%"></div>
+      <div class="bg-yellow-400 h-1.5 rounded-full transition-all" id="grading-bar" style="width: {{ pct }}%"></div>
     </div>
-    <div class="text-xs text-gray-500 font-mono mt-1 text-right">{{ pct }}% completado</div>
+    <div class="text-xs text-gray-500 font-mono mt-1 text-right" id="grading-pct">{{ pct }}% completado</div>
   </div>
   {% endif %}
   <!-- Logs de cada submission en proceso -->
@@ -225,8 +225,79 @@
   </div>
 </div>
 <script>
-  document.getElementById('grading-log').scrollTop = document.getElementById('grading-log').scrollHeight;
-  setTimeout(function() { location.reload(); }, 4000);
+(function() {
+  var gl = document.getElementById('grading-log');
+  if (gl) gl.scrollTop = gl.scrollHeight;
+
+  function logClass(msg) {
+    if (msg.includes('✓')) return 'text-green-400';
+    if (msg.includes('ERROR') || msg.includes('error')) return 'text-red-400';
+    if (msg.includes('Corrigiendo') || msg.includes('Página')) return 'text-cyan-300';
+    if (msg.includes('Alumno')) return 'text-blue-300';
+    return 'text-gray-400';
+  }
+
+  function renderGrading(data) {
+    // Cabecera: contadores
+    var hd = document.getElementById('grading-header');
+    if (hd) hd.innerHTML =
+      '<span class="text-green-400">✓ ' + data.done_count + '</span>' +
+      '<span class="text-yellow-400">⟳ ' + data.processing_count + '</span>' +
+      '<span class="text-gray-500">⏳ ' + data.pending_count + '</span>' +
+      '<span>/ ' + data.total + '</span>';
+
+    // Barra de progreso
+    var bar = document.getElementById('grading-bar');
+    if (bar) bar.style.width = data.pct + '%';
+    var pctEl = document.getElementById('grading-pct');
+    if (pctEl) pctEl.textContent = data.pct + '% completado';
+
+    // Logs de submissions
+    if (!gl) return;
+    var html = '';
+    data.submissions.forEach(function(sub) {
+      html += '<div class="px-4 py-2"><div class="flex items-center gap-2 mb-1">';
+      if (sub.status === 'processing') {
+        html += '<span class="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse shrink-0"></span>'
+              + '<span class="text-yellow-300 text-xs font-semibold truncate">' + sub.source_filename + '</span>';
+      } else {
+        html += '<span class="w-1.5 h-1.5 rounded-full bg-gray-600 shrink-0"></span>'
+              + '<span class="text-gray-500 text-xs truncate">' + sub.source_filename + ' <span class="text-gray-600">(en cola)</span></span>';
+      }
+      html += '</div>';
+      if (sub.log_entries && sub.log_entries.length) {
+        html += '<div class="font-mono text-xs space-y-0.5 pl-3">';
+        sub.log_entries.forEach(function(e) {
+          html += '<div class="flex gap-2 ' + logClass(e.msg) + '">'
+                + '<span class="text-gray-600 shrink-0">' + e.t + '</span>'
+                + '<span class="truncate">' + e.msg.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span></div>';
+        });
+        html += '</div>';
+      } else if (sub.status === 'processing') {
+        html += '<div class="font-mono text-xs text-gray-600 pl-3 animate-pulse">Iniciando...</div>';
+      }
+      html += '</div>';
+    });
+    gl.innerHTML = html;
+    gl.scrollTop = gl.scrollHeight;
+  }
+
+  function poll() {
+    fetch('/sessions/{{ session.id }}/grading-poll', {credentials: 'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        renderGrading(data);
+        if (data.still_active) {
+          setTimeout(poll, 2000);
+        } else {
+          location.reload();  // terminó → recarga una sola vez para mostrar resultados
+        }
+      })
+      .catch(function(){ setTimeout(poll, 4000); });
+  }
+
+  setTimeout(poll, 2000);
+})();
 </script>
 {% endif %}
 

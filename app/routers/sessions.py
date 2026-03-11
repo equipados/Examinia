@@ -448,6 +448,73 @@ def solutions_status(
     }
 
 
+@router.get("/{session_id}/log-poll")
+def log_poll(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Devuelve el log de la sesión (extracción de soluciones) para polling AJAX sin recarga completa."""
+    import json as _json
+    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+    if session is None:
+        return {"log_entries": [], "current_step": "", "solving_in_progress": False}
+    solutions = db.query(SessionSolution).filter(SessionSolution.session_id == session_id).all()
+    total = len(solutions)
+    completed = sum(1 for s in solutions if s.status not in ("ai_pending",))
+    solving_in_progress = any(s.status == "ai_pending" for s in solutions)
+    starting_up = bool(session.current_step) and total == 0
+    try:
+        log_entries = _json.loads(session.session_log or "[]")
+    except Exception:
+        log_entries = []
+    return {
+        "log_entries": log_entries,
+        "current_step": session.current_step or "",
+        "total": total,
+        "completed": completed,
+        "solving_in_progress": solving_in_progress or starting_up,
+    }
+
+
+@router.get("/{session_id}/grading-poll")
+def grading_poll(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Devuelve el estado del grading en curso para polling AJAX sin recarga completa."""
+    import json as _json
+    subs = db.query(Submission).filter(Submission.session_id == session_id).all()
+    total = len(subs)
+    done_count = sum(1 for s in subs if s.status == "done")
+    error_count = sum(1 for s in subs if s.status == "error")
+    processing = [s for s in subs if s.status in ("processing", "pending")]
+    still_active = bool(processing)
+    result_subs = []
+    for sub in processing[:6]:
+        try:
+            entries = _json.loads(sub.processing_log or "[]")
+        except Exception:
+            entries = []
+        result_subs.append({
+            "id": sub.id,
+            "status": sub.status,
+            "source_filename": sub.source_filename or "",
+            "log_entries": entries[-5:],
+        })
+    return {
+        "total": total,
+        "done_count": done_count,
+        "error_count": error_count,
+        "processing_count": sum(1 for s in processing if s.status == "processing"),
+        "pending_count": sum(1 for s in processing if s.status == "pending"),
+        "pct": int((done_count + error_count) / total * 100) if total else 0,
+        "still_active": still_active,
+        "submissions": result_subs,
+    }
+
+
 @router.post("/{session_id}/solutions/{sol_id}/validate")
 def validate_solution(
     session_id: int,
