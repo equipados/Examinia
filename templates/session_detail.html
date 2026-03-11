@@ -58,7 +58,7 @@
 {% set grading_started = submissions | selectattr("status", "equalto", "processing") | list | length > 0 or done_count > 0 or error_count > 0 %}
 {% set step1_done = submissions | length > 0 %}
 {% set step2_done = solutions_total > 0 and solutions_validated == solutions_total %}
-{% set step3_done = done_count > 0 %}
+{% set step3_done = done_count > 0 or grading_started %}
 {% if not step3_done %}
 <div class="bg-white border border-gray-200 rounded-xl px-5 py-4 mb-5">
   <ol class="flex items-start gap-0">
