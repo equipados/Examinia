@@ -13,6 +13,34 @@ _executor = ThreadPoolExecutor(max_workers=2)
 _solving_sessions: set[int] = set()  # guard against concurrent AI-solve runs per session
 _teacher_sessions: set[int] = set()  # guard against concurrent teacher-extraction runs per session
 
+_SOLVER_GEMINI_MODELS = {
+    "gemini-flash": "gemini-2.5-flash",
+    "gemini-pro":   "gemini-2.5-pro",
+}
+
+
+def _make_solver(solver_provider: str | None, cfg):
+    """Crea el solver adecuado según solver_provider de la sesión."""
+    provider = solver_provider or "gemini-pro"
+    if provider.startswith("openai"):
+        from openai_solver import OpenAISolver
+        model_map = {
+            "openai-gpt4o":  "gpt-4o",
+            "openai-o4mini": "o4-mini",
+        }
+        model = model_map.get(provider, "gpt-4o")
+        return OpenAISolver(model=model, max_retries=cfg.max_retries)
+    else:
+        from gemini_client import GeminiClient
+        solver_model = _SOLVER_GEMINI_MODELS.get(provider, cfg.gemini_solver_model)
+        return GeminiClient(
+            model=cfg.gemini_model,
+            solver_model=solver_model,
+            max_retries=cfg.max_retries,
+            rate_limit_seconds=cfg.rate_limit_seconds,
+            request_timeout_seconds=cfg.request_timeout_seconds,
+        )
+
 
 def _apply_session_max_points(submission, session_max: float) -> None:
     """Escala o rellena los max_points de cada parte para que el total sea session_max."""
@@ -497,6 +525,9 @@ def _run_solve_questions(session_id: int, db_path: str, config_overrides: dict) 
             rate_limit_seconds=cfg.rate_limit_seconds,
             request_timeout_seconds=cfg.request_timeout_seconds,
         )
+        solver_provider = session.solver_provider if session else None
+        solver = _make_solver(solver_provider, cfg)
+        solver_label = solver_provider or "gemini-pro"
 
         _step(f"Analizando página 1/{len(page_images)} con Gemini...")
         page_extractions = analyze_pages_with_gemini(
@@ -561,7 +592,7 @@ def _run_solve_questions(session_id: int, db_path: str, config_overrides: dict) 
                 continue
 
             try:
-                solved = gemini.solve_math_question(
+                solved = solver.solve_math_question(
                     question_statement=full_statement,
                     question_id=question_id_str,
                     part_id=part_id_str,
@@ -571,7 +602,9 @@ def _run_solve_questions(session_id: int, db_path: str, config_overrides: dict) 
                 if not solved.can_solve or solved.confidence == 0.0:
                     _step(f"  ↺ {question_id_str}.{part_id_str} no resuelto con texto — reintentando leyendo imagen...")
                     page_imgs = [pi.image_path for pi in page_images]
-                    solved = gemini.solve_math_question(
+                    # Reintento con imagen solo disponible en Gemini
+                    retry_solver = gemini if solver_label.startswith("openai") else solver
+                    solved = retry_solver.solve_math_question(
                         question_statement=full_statement,
                         question_id=question_id_str,
                         part_id=part_id_str,
@@ -599,7 +632,9 @@ def _run_solve_questions(session_id: int, db_path: str, config_overrides: dict) 
                     row.status = "ai_failed"
                     db.commit()
 
-        _save_token_usage(db, gemini, "extract_solutions", session_id, None)
+        _save_token_usage(db, solver, "extract_solutions", session_id, None)
+        if solver is not gemini:
+            _save_token_usage(db, gemini, "extract_solutions_pages", session_id, None)
         _step(f"✓ Resolución completada: {total_parts} apartado(s) procesados. Revisa y valida las soluciones.")
     except Exception:
         import traceback

@@ -23,6 +23,18 @@
                class="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500">
         <button type="submit" class="text-xs text-blue-600 hover:underline">✓</button>
       </form>
+      <!-- Selector de IA para el solver -->
+      <form method="post" action="/sessions/{{ session.id }}/set-solver"
+            class="flex items-center gap-1" title="Modelo IA para resolver ejercicios">
+        <span class="text-gray-400">Solver</span>
+        <select name="solver_provider" onchange="this.form.submit()"
+                class="border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+          <option value="gemini-pro"   {% if solver_provider == "gemini-pro"   %}selected{% endif %}>Gemini Pro</option>
+          <option value="gemini-flash" {% if solver_provider == "gemini-flash" %}selected{% endif %}>Gemini Flash</option>
+          <option value="openai-gpt4o" {% if solver_provider == "openai-gpt4o" %}selected{% endif %}>OpenAI GPT-4o</option>
+          <option value="openai-o4mini"{% if solver_provider == "openai-o4mini"%}selected{% endif %}>OpenAI o4-mini</option>
+        </select>
+      </form>
     </div>
   </div>
   <div class="flex gap-2 flex-wrap">

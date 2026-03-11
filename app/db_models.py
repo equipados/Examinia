@@ -29,6 +29,7 @@ class ExamSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     status: Mapped[str] = mapped_column(Text, default="open")         # open | archived
     solution_mode: Mapped[str] = mapped_column(Text, default="ai")    # ai | teacher
+    solver_provider: Mapped[str] = mapped_column(Text, default="gemini-pro")  # gemini-flash | gemini-pro | openai-gpt4o | openai-o4mini
     max_total_points: Mapped[float | None] = mapped_column(Float)     # puntuación máxima forzada (ej: 10)
     current_step: Mapped[str | None] = mapped_column(Text)            # último paso (resumen)
     session_log: Mapped[str | None] = mapped_column(Text)             # log acumulativo JSON [{t, msg}]

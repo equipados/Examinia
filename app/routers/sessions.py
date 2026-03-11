@@ -62,6 +62,23 @@ def create_session(
     return RedirectResponse(url=f"/sessions/{session.id}/upload", status_code=status.HTTP_302_FOUND)
 
 
+_VALID_SOLVER_PROVIDERS = {"gemini-flash", "gemini-pro", "openai-gpt4o", "openai-o4mini"}
+
+
+@router.post("/{session_id}/set-solver")
+def set_solver(
+    session_id: int,
+    solver_provider: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RedirectResponse:
+    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+    if session and solver_provider in _VALID_SOLVER_PROVIDERS:
+        session.solver_provider = solver_provider
+        db.commit()
+    return RedirectResponse(url=f"/sessions/{session_id}", status_code=status.HTTP_302_FOUND)
+
+
 @router.post("/{session_id}/set-max-points")
 def set_max_points(
     session_id: int,
@@ -133,6 +150,7 @@ def session_detail(
             "error_count": error_count,
             "solutions_total": solutions_total,
             "solutions_validated": solutions_validated,
+            "solver_provider": session.solver_provider or "gemini-pro",
             "user": current_user,
             "course_labels": _COURSE_LABELS,
             "token_summary": token_summary,
