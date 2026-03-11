@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
+APP_VERSION = "1.1.0"
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -49,8 +51,9 @@ _static_dir = Path("static")
 _static_dir.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Import shared templates to ensure filters are registered at startup
-from app.templates import templates as _shared_templates  # noqa: F401
+# Import shared templates and inject app version as global
+from app.templates import templates as _shared_templates, _set_app_version  # noqa: F401
+_set_app_version(APP_VERSION)
 
 
 # Register routers

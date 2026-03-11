@@ -92,7 +92,7 @@
   <h1 class="text-2xl font-bold text-gray-900 mt-2">Soluciones del examen</h1>
   <p class="text-sm text-gray-500 mt-1">
     {% if solution_mode == "teacher" %}
-    Has subido las soluciones del profesor. Revisa que las respuestas extraídas son correctas y valídalas antes de corregir los exámenes.
+    Respuestas extraídas del PDF del profesor y validadas automáticamente. Comprueba que se leyeron bien; si hay algún error, corrígelo pulsando en el apartado.
     {% else %}
     Revisa las soluciones generadas por la IA. Corrígelas si es necesario y valídalas antes de corregir los exámenes.
     Si la IA no puede resolver algún apartado, sube una imagen con la solución correcta.
@@ -229,7 +229,7 @@
 {% if total > 0 %}
 <div class="flex flex-wrap gap-3 mb-6">
   {% set pending_validation = solutions | selectattr("status", "equalto", "ai_solved") | selectattr("final_answer") | list | length %}
-  {% if pending_validation > 0 and not solving_in_progress %}
+  {% if pending_validation > 0 and not solving_in_progress and solution_mode != "teacher" %}
   <form method="post" action="/sessions/{{ session.id }}/solutions/validate-all">
     <button class="bg-yellow-500 hover:bg-yellow-400 text-white px-5 py-2 rounded-lg text-sm font-semibold transition">
       ✓ Validar todas ({{ pending_validation }})
@@ -300,7 +300,7 @@
       <!-- Botón para colapsar/expandir -->
       <button onclick="toggleSol({{ sol.id }})"
               class="text-xs text-blue-600 hover:underline" id="btn-{{ sol.id }}">
-        {% if sol.status in ('validated','manual') %}Ver / Editar{% else %}Editar{% endif %}
+        {% if sol.status in ('validated','manual') %}{% if solution_mode == "teacher" %}Corregir{% else %}Ver / Editar{% endif %}{% else %}Editar{% endif %}
       </button>
     </div>
 
@@ -367,11 +367,12 @@
           <div class="space-y-3">
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">
-                Respuesta correcta final <span class="text-red-500">*</span>
+                {% if solution_mode == "teacher" %}Corregir respuesta leída{% else %}Respuesta correcta final <span class="text-red-500">*</span>{% endif %}
               </label>
               <input type="text" name="final_answer"
-                     value="{{ sol.final_answer or (sol.solved_json | from_json).get('solved_final_answer', '') if sol.solved_json else '' }}"
-                     required placeholder="Ej: x = 2, f'(x) = 2x+1, I = x^3/3 + C"
+                     value="{{ sol.final_answer or (sol.solved_json | from_json).get('solved_final_answer', '') if sol.solved_json else sol.final_answer or '' }}"
+                     {% if solution_mode != "teacher" %}required{% endif %}
+                     placeholder="Ej: x = 2, f'(x) = 2x+1, I = x^3/3 + C"
                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
             <div>
@@ -382,7 +383,7 @@
             </div>
             <button type="submit"
                     class="bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-lg text-sm font-semibold transition">
-              ✓ Validar solución
+              ✓ {% if solution_mode == "teacher" %}Guardar corrección{% else %}Validar solución{% endif %}
             </button>
           </div>
         </form>

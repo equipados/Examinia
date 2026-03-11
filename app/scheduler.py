@@ -10,7 +10,8 @@ from pathlib import Path
 from loguru import logger
 
 _executor = ThreadPoolExecutor(max_workers=2)
-_solving_sessions: set[int] = set()  # guard against concurrent runs per session
+_solving_sessions: set[int] = set()  # guard against concurrent AI-solve runs per session
+_teacher_sessions: set[int] = set()  # guard against concurrent teacher-extraction runs per session
 
 
 def _apply_session_max_points(submission, session_max: float) -> None:
@@ -622,10 +623,10 @@ def extract_teacher_solutions_for_session(
 def _run_extract_teacher_solutions(
     session_id: int, teacher_pdf_path: str, db_path: str, config_overrides: dict
 ) -> None:
-    if session_id in _solving_sessions:
-        logger.warning(f"[Sesión {session_id}] Extracción ya en curso, ignorando solicitud duplicada.")
+    if session_id in _teacher_sessions:
+        logger.warning(f"[Sesión {session_id}] Extracción del profesor ya en curso, ignorando solicitud duplicada.")
         return
-    _solving_sessions.add(session_id)
+    _teacher_sessions.add(session_id)
 
     from app.database import init_db, get_db
     from app.db_models import ExamSession, SessionSolution
@@ -698,14 +699,18 @@ def _run_extract_teacher_solutions(
         db.query(SessionSolution).filter(SessionSolution.session_id == session_id).delete()
         db.commit()
 
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
         created = 0
         for item in extraction.solutions:
+            has_answer = bool(item.answer)
             row = SessionSolution(
                 session_id=session_id,
                 question_id=item.question_id,
                 part_id=item.part_id,
                 final_answer=item.answer or None,
-                status="ai_solved" if item.answer else "ai_failed",
+                status="validated" if has_answer else "ai_failed",
+                validated_at=now if has_answer else None,
             )
             db.add(row)
             created += 1
@@ -721,7 +726,7 @@ def _run_extract_teacher_solutions(
             logger.remove(_sink_id)
         except Exception:
             pass
-        _solving_sessions.discard(session_id)
+        _teacher_sessions.discard(session_id)
         db.close()
 
 
