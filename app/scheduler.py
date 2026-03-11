@@ -52,8 +52,10 @@ def _apply_session_max_points(submission, session_max: float) -> None:
 
     current_total = sum(p.max_points or 0.0 for p in all_parts)
 
-    if current_total == 0.0:
-        # Sin puntuación extraída: reparto equitativo entre preguntas, luego entre sus partes
+    zero_parts = [p for p in all_parts if (p.max_points or 0.0) == 0.0]
+
+    if current_total == 0.0 or zero_parts:
+        # Sin puntuación en alguna(s) parte(s): reparto equitativo entre todas
         n_questions = len(submission.questions)
         pts_per_question = round_points(session_max / n_questions)
         for q in submission.questions:
@@ -341,7 +343,18 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
 
         # 5. Grade (uses caching wrapper for solver calls)
         _step(f"Corrigiendo respuestas con {cfg.gemini_model} (assess) + {cfg.gemini_solver_model} (solver)...")
-        bank = SolutionBank([])
+        # Construir SolutionBank desde soluciones validadas de la convocatoria
+        from app.db_models import SessionSolution as _SS
+        from models import SolutionTemplate as _ST
+        sess_sols = db.query(_SS).filter(
+            _SS.session_id == submission.session_id,
+            _SS.status.in_(["validated", "manual"]),
+            _SS.final_answer.isnot(None),
+        ).all()
+        bank = SolutionBank([
+            _ST(exercise=s.question_id, part=s.part_id, expected_final_answer=s.final_answer, max_points=0.0)
+            for s in sess_sols
+        ])
         reports_dir = Path(upload_dir) / "informes"
         reports_dir.mkdir(parents=True, exist_ok=True)
 
