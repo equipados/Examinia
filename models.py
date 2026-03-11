@@ -210,6 +210,32 @@ class GeminiAssessment(BaseModel):
     reasoning_summary: str = ""
 
 
+class TeacherSolutionItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: str
+    part_id: str
+    answer: str
+    notes: str = ""
+
+    @field_validator("question_id", mode="before")
+    @classmethod
+    def norm_q(cls, v: object) -> str:
+        return normalize_identifier(str(v), default="0")
+
+    @field_validator("part_id", mode="before")
+    @classmethod
+    def norm_p(cls, v: object) -> str:
+        return normalize_identifier(str(v), default="single")
+
+
+class TeacherSolutionsExtraction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    solutions: list[TeacherSolutionItem] = Field(default_factory=list)
+    notes: str = ""
+
+
 class GeminiSolvedExercise(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

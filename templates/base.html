@@ -26,8 +26,12 @@
       {% if user is defined and user %}
       <div class="flex items-center gap-4 text-sm text-gray-600">
         <a href="/reports/usage"
-           class="text-gray-500 hover:text-gray-800 font-medium transition {% if request.url.path.startswith('/reports') %}text-blue-700 font-semibold{% endif %}">
+           class="text-gray-500 hover:text-gray-800 font-medium transition {% if request.url.path == '/reports/usage' %}text-blue-700 font-semibold{% endif %}">
           Costes IA
+        </a>
+        <a href="/reports/history"
+           class="text-gray-500 hover:text-gray-800 font-medium transition {% if request.url.path == '/reports/history' %}text-blue-700 font-semibold{% endif %}">
+          Historial
         </a>
         <span class="opacity-70">{{ user.username }}</span>
         <form method="post" action="/logout">

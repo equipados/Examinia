@@ -20,6 +20,7 @@ from models import (
     LLMPageExtraction,
     PageExtraction,
     SolutionTemplate,
+    TeacherSolutionsExtraction,
 )
 
 T = TypeVar("T", bound=BaseModel)
@@ -94,12 +95,14 @@ class GeminiClient:
         if wait_time > 0:
             time.sleep(wait_time)
 
-    def _build_contents(self, prompt: str, image_path: Path | None = None) -> list[object]:
-        if image_path is None:
+    def _build_contents(self, prompt: str, image_paths: list[Path] | None = None) -> list[object]:
+        if not image_paths:
             return [prompt]
-        with Image.open(image_path) as image:
-            image_copy = image.copy()
-        return [prompt, image_copy]
+        images = []
+        for p in image_paths:
+            with Image.open(p) as img:
+                images.append(img.copy())
+        return [prompt] + images
 
     def _extract_text_fallback(self, response: object) -> str:
         text = getattr(response, "text", None)
@@ -523,6 +526,20 @@ class GeminiClient:
         return "invalid_argument" in payload and "response_schema" in payload and "additional_properties" in payload
 
     @staticmethod
+    def _is_quota_exceeded(exc: Exception) -> bool:
+        payload = str(exc)
+        return "429" in payload or "RESOURCE_EXHAUSTED" in payload or "quota" in payload.lower()
+
+    @staticmethod
+    def _parse_retry_delay(exc: Exception) -> float:
+        """Extrae el retryDelay sugerido por la API (segundos). Devuelve 0 si no lo encuentra."""
+        import re as _re
+        m = _re.search(r"retry[_ ]?[iI]n[' \"]*:?\s*['\"]?(\d+(?:\.\d+)?)", str(exc), _re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+        return 0.0
+
+    @staticmethod
     def _parse_json_payload(text: str) -> dict | list:
         raw = text.strip()
         if raw.startswith("```"):
@@ -546,7 +563,7 @@ class GeminiClient:
         self,
         prompt: str,
         schema: type[T],
-        image_path: Path | None = None,
+        image_paths: list[Path] | None = None,
         temperature: float = 0.1,
         use_native_schema: bool = True,
         model_override: str | None = None,
@@ -559,7 +576,7 @@ class GeminiClient:
         if use_native_schema:
             config_kwargs["response_schema"] = schema
         config = self._types.GenerateContentConfig(**config_kwargs)
-        contents = self._build_contents(prompt=prompt, image_path=image_path)
+        contents = self._build_contents(prompt=prompt, image_paths=image_paths)
         target_model = model_override or self.model
         response = self._client.models.generate_content(
             model=target_model,
@@ -593,7 +610,7 @@ class GeminiClient:
         self,
         prompt: str,
         schema: type[T],
-        image_path: Path | None = None,
+        image_paths: list[Path] | None = None,
         temperature: float = 0.1,
         model_override: str | None = None,
     ) -> T:
@@ -612,7 +629,7 @@ class GeminiClient:
                     result = self._generate_structured_once(
                         prompt=strict_prompt,
                         schema=schema,
-                        image_path=image_path,
+                        image_paths=image_paths,
                         temperature=temperature,
                         use_native_schema=use_native_schema,
                         model_override=model_override,
@@ -635,6 +652,14 @@ class GeminiClient:
                         )
                         self._native_schema_supported = False
                         use_native_schema = False
+                        raise RuntimeError(str(exc)) from exc
+                    if self._is_quota_exceeded(exc):
+                        delay = self._parse_retry_delay(exc)
+                        if delay > 0:
+                            logger.warning(f"Cuota API agotada (429); esperando {delay:.0f}s antes de reintentar...")
+                            time.sleep(min(delay, 60))
+                        else:
+                            logger.warning("Cuota API agotada (429); sin delay sugerido, re-lanzando inmediatamente.")
                         raise RuntimeError(str(exc)) from exc
                     if use_native_schema and self._native_schema_supported is None:
                         self._native_schema_supported = True
@@ -659,7 +684,7 @@ class GeminiClient:
         return text.strip()
 
     def analyze_exam_page(self, image_path: Path, prompt: str, schema: type[T]) -> T:
-        return self._generate_structured(prompt=prompt, schema=schema, image_path=image_path, temperature=0.1)
+        return self._generate_structured(prompt=prompt, schema=schema, image_paths=[image_path], temperature=0.1)
 
     def extract_structured_exam_data(self, image_path: Path, source_file: str, page_number: int) -> PageExtraction:
         prompt = f"""
@@ -981,6 +1006,8 @@ Devuelve SOLO estas claves:
         part_id: str,
         exam_model: str | None = None,
         course_level: str | None = None,
+        image_paths: list[Path] | None = None,
+        read_from_image: bool = False,
     ) -> GeminiSolvedExercise:
         _course_label = {
             "1o_bachillerato": "1o Bachillerato",
@@ -1002,7 +1029,39 @@ hiperbola, parabola), funciones y continuidad avanzada."""
 
         _curriculum = _curriculum_1 if course_level == "1o_bachillerato" else _curriculum_2
 
-        prompt = f"""
+        if read_from_image and image_paths:
+            prompt = f"""
+Eres un experto en Matematicas de {_course_label} (Espana).
+Se adjuntan las imagenes de las paginas de un examen impreso. El alumno ha escrito sus respuestas a mano — IGNORALAS completamente.
+
+{_curriculum}
+
+Tu tarea: localiza en las imagenes el ejercicio {question_id}, apartado {part_id}, lee su enunciado impreso/tipografiado y resuelvelo.
+
+Instrucciones:
+1. Lee el enunciado directamente de la imagen (puede haber formulas, graficas o tablas).
+2. Resuelve paso a paso mostrando los pasos clave del procedimiento.
+3. Indica la respuesta final exacta en solved_final_answer (usa notacion matematica de texto:
+   "x=2", "f'(x)=2x+1", "integral = x^3/3 + C", "lim = 1", "[[1,2],[3,4]]" para matrices).
+4. En accepted_equivalents incluye formas equivalentes habituales de la misma respuesta.
+5. En expected_steps lista los pasos intermedios principales que un alumno correcto mostraria.
+6. confidence: certeza de que la solucion es correcta (0.0-1.0).
+7. Si no encuentras el ejercicio o no puedes resolver con fiabilidad, indica can_solve=false.
+
+Devuelve SOLO estas claves:
+{{
+  "can_solve": true,
+  "confidence": 0.0,
+  "solved_final_answer": "str",
+  "accepted_equivalents": ["str"],
+  "expected_steps": ["str"],
+  "topic": "str|null",
+  "notes": "str",
+  "incidents": ["str"]
+}}
+"""
+        else:
+            prompt = f"""
 Resuelve un apartado de Matematicas de {_course_label} (Espana) SOLO a partir del enunciado.
 Si el enunciado no permite resolver con fiabilidad, indica can_solve=false.
 No inventes datos no presentes en el enunciado.
@@ -1044,6 +1103,7 @@ Devuelve SOLO estas claves:
             return self._generate_structured(
                 prompt=prompt,
                 schema=GeminiSolvedExercise,
+                image_paths=image_paths,
                 temperature=0.1,
                 model_override=preferred_model,
             )
@@ -1058,6 +1118,7 @@ Devuelve SOLO estas claves:
                 return self._generate_structured(
                     prompt=prompt,
                     schema=GeminiSolvedExercise,
+                    image_paths=image_paths,
                     temperature=0.1,
                     model_override=self.model,
                 )
@@ -1089,6 +1150,40 @@ Requisitos:
 """
         return self._generate_text(prompt=prompt, temperature=0.2)
 
+    def extract_teacher_solutions_from_pages(
+        self,
+        image_paths: list[Path],
+    ) -> TeacherSolutionsExtraction:
+        """Lee las soluciones correctas de las páginas del PDF del profesor."""
+        prompt = """Eres un experto en matemáticas de Bachillerato (España).
+Las imágenes adjuntas son páginas de un examen RESUELTO por el profesor.
+Tu tarea es extraer SOLO las respuestas correctas finales de cada ejercicio y apartado.
+
+Instrucciones:
+- Identifica cada ejercicio (1, 2, 3...) y sus apartados (a, b, c... o single si no hay).
+- Para cada apartado extrae la respuesta final en texto matemático legible.
+  Usa notación de texto: "x=2", "f'(x)=2x+1", "I=x^3/3+C", "lim=+inf", "[[1,2],[3,4]]".
+- Incluye solo el resultado final, no el desarrollo.
+- Si un apartado no tiene respuesta visible, omítelo.
+- NO inventes respuestas. Si no ves la solución claramente, omite ese apartado.
+
+Devuelve JSON con esta estructura exacta:
+{
+  "solutions": [
+    {"question_id": "1", "part_id": "a", "answer": "x=3", "notes": ""},
+    {"question_id": "1", "part_id": "b", "answer": "-3/2", "notes": ""},
+    {"question_id": "2", "part_id": "single", "answer": "12", "notes": ""}
+  ],
+  "notes": ""
+}
+"""
+        return self._generate_structured(
+            prompt=prompt,
+            schema=TeacherSolutionsExtraction,
+            image_paths=image_paths,
+            temperature=0.1,
+        )
+
     def extract_answer_from_solution_image(
         self,
         image_path: Path,
@@ -1113,7 +1208,7 @@ Tarea: extrae la respuesta final de esta solución como texto matemático legibl
 """
         self._respect_rate_limit()
         config = self._types.GenerateContentConfig(temperature=0.1)
-        contents = self._build_contents(prompt, image_path)
+        contents = self._build_contents(prompt, [image_path] if image_path else None)
         response = self._client.models.generate_content(
             model=self.solver_model,
             contents=contents,

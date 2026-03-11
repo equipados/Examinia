@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Historial de convocatorias — Examinia{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Historial de convocatorias</h1>
+  <p class="text-sm text-gray-500 mt-1">Registro permanente de todas las convocatorias, incluyendo las eliminadas.</p>
+</div>
+
+<!-- Tarjetas de resumen global -->
+<div class="grid grid-cols-3 gap-4 mb-8">
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 text-center">
+    <div class="text-2xl font-bold text-gray-900">{{ rows | length }}</div>
+    <div class="text-xs text-gray-500 mt-1">Convocatorias totales</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 text-center">
+    <div class="text-2xl font-bold text-blue-700">{{ grand_exams }}</div>
+    <div class="text-xs text-gray-500 mt-1">Exámenes corregidos</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 text-center">
+    <div class="text-2xl font-bold text-emerald-700">{{ "%.3f"|format(grand_cost) }} €</div>
+    <div class="text-xs text-gray-500 mt-1">Coste total IA</div>
+  </div>
+</div>
+
+{% if rows %}
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="text-left px-4 py-3 font-semibold text-gray-700">Convocatoria</th>
+        <th class="text-left px-4 py-3 font-semibold text-gray-700">Fecha</th>
+        <th class="text-left px-4 py-3 font-semibold text-gray-700">Asignatura</th>
+        <th class="text-center px-4 py-3 font-semibold text-gray-700">Exámenes</th>
+        <th class="text-center px-4 py-3 font-semibold text-gray-700">Nota media</th>
+        <th class="text-right px-4 py-3 font-semibold text-gray-700">Tokens</th>
+        <th class="text-right px-4 py-3 font-semibold text-gray-700">Coste</th>
+        <th class="text-center px-4 py-3 font-semibold text-gray-700">Estado</th>
+        <th class="text-center px-4 py-3 font-semibold text-gray-700">Actualizado</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for row in rows %}
+      {% set is_active = row.session_id in active_ids %}
+      <tr class="hover:bg-gray-50 {% if row.deleted_at %}opacity-60{% endif %}">
+        <td class="px-4 py-3 font-medium">
+          {% if is_active %}
+          <a href="/sessions/{{ row.session_id }}" class="text-blue-700 hover:underline">{{ row.session_name }}</a>
+          {% else %}
+          <span class="text-gray-500">{{ row.session_name }}</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-500">{{ row.session_date or "—" }}</td>
+        <td class="px-4 py-3 text-gray-500">{{ row.subject or "—" }}</td>
+        <td class="px-4 py-3 text-center">
+          <span class="font-semibold text-gray-800">{{ row.graded_submissions }}</span>
+          {% if row.total_submissions > row.graded_submissions %}
+          <span class="text-xs text-gray-400">/{{ row.total_submissions }}</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-center">
+          {% if row.avg_score is not none %}
+          <span class="font-semibold text-gray-800">{{ "%.2f"|format(row.avg_score) }}</span>
+          {% if row.max_total_points %}
+          <span class="text-xs text-gray-400">/{{ row.max_total_points | int }}</span>
+          {% endif %}
+          {% else %}
+          <span class="text-gray-400">—</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-right font-mono text-gray-600">{{ "{:,}".format(row.total_tokens) }}</td>
+        <td class="px-4 py-3 text-right font-mono font-semibold text-emerald-700">
+          {{ "%.4f"|format(row.total_cost_eur) }} €
+        </td>
+        <td class="px-4 py-3 text-center">
+          {% if row.deleted_at %}
+          <span class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-medium">Eliminada</span>
+          {% elif is_active %}
+          <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Activa</span>
+          {% else %}
+          <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">—</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-center text-xs text-gray-400">
+          {{ row.snapshot_at.strftime("%d/%m/%Y %H:%M") if row.snapshot_at else "—" }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-center py-20 text-gray-400">
+  <p class="text-lg">No hay historial todavía.</p>
+  <p class="text-sm mt-2">El historial se actualiza automáticamente al completar o eliminar convocatorias.</p>
+</div>
+{% endif %}
+
+{% endblock %}

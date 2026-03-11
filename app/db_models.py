@@ -106,6 +106,26 @@ class TokenUsage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class SessionHistory(Base):
+    """Historial permanente de convocatorias — persiste aunque la convocatoria se borre."""
+    __tablename__ = "session_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int | None] = mapped_column(Integer)          # referencia sin FK (puede estar borrada)
+    session_name: Mapped[str] = mapped_column(Text, nullable=False)
+    session_date: Mapped[str | None] = mapped_column(Text)
+    subject: Mapped[str | None] = mapped_column(Text)
+    course_level: Mapped[str | None] = mapped_column(Text)
+    max_total_points: Mapped[float | None] = mapped_column(Float)
+    total_submissions: Mapped[int] = mapped_column(Integer, default=0)
+    graded_submissions: Mapped[int] = mapped_column(Integer, default=0)
+    avg_score: Mapped[float | None] = mapped_column(Float)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_cost_eur: Mapped[float] = mapped_column(Float, default=0.0)
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)    # null = convocatoria sigue activa
+
+
 class SessionSolution(Base):
     """Soluciones por convocatoria: se calculan una vez, el profesor las valida, y se reutilizan para corregir."""
     __tablename__ = "session_solutions"

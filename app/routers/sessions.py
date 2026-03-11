@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.db_models import ExamSession, SessionSolution, Submission, QuestionResult, PartResult, TokenUsage, User
+from app.db_models import ExamSession, SessionHistory, SessionSolution, Submission, QuestionResult, PartResult, TokenUsage, User
 
 # Set from web.py at startup (same as submissions router)
 _db_path: str = "corrector.db"
@@ -59,7 +59,7 @@ def create_session(
     db.add(session)
     db.commit()
     db.refresh(session)
-    return RedirectResponse(url=f"/sessions/{session.id}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url=f"/sessions/{session.id}/upload", status_code=status.HTTP_302_FOUND)
 
 
 @router.post("/{session_id}/set-max-points")
@@ -113,6 +113,10 @@ def session_detail(
     done_count = sum(1 for s in submissions if s.status == "done")
     error_count = sum(1 for s in submissions if s.status == "error")
 
+    solutions = db.query(SessionSolution).filter(SessionSolution.session_id == session_id).all()
+    solutions_total = len(solutions)
+    solutions_validated = sum(1 for s in solutions if s.status in ("validated", "manual"))
+
     # Token usage aggregated by operation+model
     token_rows = db.query(TokenUsage).filter(TokenUsage.session_id == session_id).all()
     token_summary = _build_token_summary(token_rows)
@@ -127,6 +131,8 @@ def session_detail(
             "pending": pending,
             "done_count": done_count,
             "error_count": error_count,
+            "solutions_total": solutions_total,
+            "solutions_validated": solutions_validated,
             "user": current_user,
             "course_labels": _COURSE_LABELS,
             "token_summary": token_summary,
@@ -256,6 +262,8 @@ _TOKEN_PRICES: dict[str, dict[str, float]] = {
     "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
 }
 
+_USD_TO_EUR = 0.92
+
 _OP_LABELS = {
     "extract_solutions":  "Extracción IA",
     "extract_teacher_pdf": "PDF profesor",
@@ -282,7 +290,7 @@ def _build_token_summary(rows) -> dict:
             (v for k, v in _TOKEN_PRICES.items() if r.model.startswith(k)),
             {"input": 0.0, "output": 0.0},
         )
-        cost = (r.input_tokens * prices["input"] + r.output_tokens * prices["output"]) / 1_000_000
+        cost = (r.input_tokens * prices["input"] + r.output_tokens * prices["output"]) / 1_000_000 * _USD_TO_EUR
         entry["cost_usd"] += cost
         grand["input"] += r.input_tokens
         grand["output"] += r.output_tokens
@@ -522,3 +530,84 @@ async def upload_solution_image(
 
     db.commit()
     return RedirectResponse(url=f"/sessions/{session_id}/solutions", status_code=status.HTTP_302_FOUND)
+
+
+# ── Historial / Borrado ──────────────────────────────────────────────────────
+
+def _snapshot_session(session: ExamSession, db: Session, deleted: bool = False) -> None:
+    """Guarda o actualiza el snapshot de estadísticas en session_history."""
+    from datetime import datetime, timezone
+
+    subs = db.query(Submission).filter(Submission.session_id == session.id).all()
+    done = [s for s in subs if s.status == "done"]
+    avg = round(sum(s.total_points for s in done if s.total_points is not None) / len(done), 3) if done else None
+
+    token_rows = db.query(TokenUsage).filter(TokenUsage.session_id == session.id).all()
+    total_tokens = sum(r.total_tokens for r in token_rows)
+    _USD_TO_EUR = 0.92
+    _PRICES = {
+        "gemini-2.5-pro":   {"input": 1.25,  "output": 10.0},
+        "gemini-2.5-flash": {"input": 0.15,  "output": 0.60},
+        "gemini-2.0-flash": {"input": 0.10,  "output": 0.40},
+        "gemini-1.5-pro":   {"input": 1.25,  "output": 5.00},
+        "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
+    }
+    total_cost = sum(
+        (r.input_tokens * next((v for k, v in _PRICES.items() if r.model.startswith(k)), {"input": 0.0, "output": 0.0})["input"]
+         + r.output_tokens * next((v for k, v in _PRICES.items() if r.model.startswith(k)), {"input": 0.0, "output": 0.0})["output"])
+        / 1_000_000 * _USD_TO_EUR
+        for r in token_rows
+    )
+
+    now = datetime.now(timezone.utc)
+    existing = db.query(SessionHistory).filter(SessionHistory.session_id == session.id).first()
+    if existing:
+        existing.session_name = session.name
+        existing.session_date = session.date
+        existing.subject = session.subject
+        existing.course_level = session.course_level
+        existing.max_total_points = session.max_total_points
+        existing.total_submissions = len(subs)
+        existing.graded_submissions = len(done)
+        existing.avg_score = avg
+        existing.total_tokens = total_tokens
+        existing.total_cost_eur = round(total_cost, 6)
+        existing.snapshot_at = now
+        if deleted:
+            existing.deleted_at = now
+    else:
+        db.add(SessionHistory(
+            session_id=session.id,
+            session_name=session.name,
+            session_date=session.date,
+            subject=session.subject,
+            course_level=session.course_level,
+            max_total_points=session.max_total_points,
+            total_submissions=len(subs),
+            graded_submissions=len(done),
+            avg_score=avg,
+            total_tokens=total_tokens,
+            total_cost_eur=round(total_cost, 6),
+            deleted_at=now if deleted else None,
+        ))
+    db.commit()
+
+
+@router.post("/{session_id}/delete")
+def delete_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RedirectResponse:
+    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+    if session is None:
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+
+    _snapshot_session(session, db, deleted=True)
+
+    db.query(TokenUsage).filter(TokenUsage.session_id == session_id).delete()
+    db.query(SessionSolution).filter(SessionSolution.session_id == session_id).delete()
+    db.delete(session)
+    db.commit()
+
+    return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)

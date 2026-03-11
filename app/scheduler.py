@@ -13,25 +13,60 @@ _executor = ThreadPoolExecutor(max_workers=2)
 _solving_sessions: set[int] = set()  # guard against concurrent runs per session
 
 
+def _apply_session_max_points(submission, session_max: float) -> None:
+    """Escala o rellena los max_points de cada parte para que el total sea session_max."""
+    from utils import round_points
+
+    all_parts = [part for q in submission.questions for part in q.parts]
+    if not all_parts:
+        return
+
+    current_total = sum(p.max_points or 0.0 for p in all_parts)
+
+    if current_total == 0.0:
+        # Sin puntuación extraída: reparto equitativo entre preguntas, luego entre sus partes
+        n_questions = len(submission.questions)
+        pts_per_question = round_points(session_max / n_questions)
+        for q in submission.questions:
+            n_parts = len(q.parts)
+            pts_per_part = round_points(pts_per_question / n_parts)
+            for p in q.parts:
+                p.max_points = pts_per_part
+            q.max_points = round_points(sum(p.max_points for p in q.parts))
+    elif abs(current_total - session_max) > 0.01:
+        # Puntuación extraída pero con escala diferente: escalar proporcionalmente
+        scale = session_max / current_total
+        for p in all_parts:
+            p.max_points = round_points((p.max_points or 0.0) * scale)
+        for q in submission.questions:
+            q.max_points = round_points(sum(p.max_points for p in q.parts))
+
+
 def _save_token_usage(db, gemini_client, operation: str, session_id: int | None, submission_id: int | None) -> None:
-    """Lee el uso acumulado en gemini_client y persiste una fila por modelo en token_usage."""
+    """Reemplaza (no acumula) el uso de tokens para esta operación+sesión/submission."""
     from app.db_models import TokenUsage
     usage = gemini_client.reset_usage()
-    for model_name, counts in usage.items():
-        if counts.get("total", 0) == 0 and counts.get("calls", 0) == 0:
-            continue
-        row = TokenUsage(
-            session_id=session_id,
-            submission_id=submission_id,
-            operation=operation,
-            model=model_name,
-            input_tokens=counts.get("input", 0),
-            output_tokens=counts.get("output", 0),
-            total_tokens=counts.get("total", 0),
-            api_calls=counts.get("calls", 0),
-        )
-        db.add(row)
     try:
+        # Borrar filas anteriores de la misma operación para no acumular re-ejecuciones
+        q = db.query(TokenUsage).filter(TokenUsage.operation == operation)
+        if submission_id is not None:
+            q = q.filter(TokenUsage.submission_id == submission_id)
+        elif session_id is not None:
+            q = q.filter(TokenUsage.session_id == session_id)
+        q.delete()
+        for model_name, counts in usage.items():
+            if counts.get("total", 0) == 0 and counts.get("calls", 0) == 0:
+                continue
+            db.add(TokenUsage(
+                session_id=session_id,
+                submission_id=submission_id,
+                operation=operation,
+                model=model_name,
+                input_tokens=counts.get("input", 0),
+                output_tokens=counts.get("output", 0),
+                total_tokens=counts.get("total", 0),
+                api_calls=counts.get("calls", 0),
+            ))
         db.commit()
     except Exception as e:
         logger.warning(f"No se pudo guardar token_usage: {e}")
@@ -111,7 +146,8 @@ class _CachingGeminiWrapper:
         return cache
 
     def solve_math_question(self, *, question_statement: str, question_id: str, part_id: str,
-                            exam_model: str | None = None, course_level: str | None = None):
+                            exam_model: str | None = None, course_level: str | None = None,
+                            image_paths=None, read_from_image: bool = False):
         key = (question_id, part_id)
         if key in self._cache:
             logger.debug(f"      [{question_id}.{part_id}] Usando solución IA cacheada (sin llamada API)")
@@ -124,6 +160,8 @@ class _CachingGeminiWrapper:
             part_id=part_id,
             exam_model=exam_model,
             course_level=course_level,
+            image_paths=image_paths,
+            read_from_image=read_from_image,
         )
         if result.can_solve:
             self._cache[key] = result
@@ -265,6 +303,13 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
         total_parts = sum(len(q.parts) for q in exam_submission.questions)
         _step(f"Alumno: {exam_submission.student_name or '?'} · Modelo: {exam_submission.exam_model or '?'} · {len(exam_submission.questions)} ejercicio(s), {total_parts} apartado(s)")
 
+        # Aplicar puntuación máxima de la convocatoria si está configurada
+        from app.db_models import ExamSession
+        session_obj = db.get(ExamSession, submission.session_id)
+        if session_obj and session_obj.max_total_points:
+            _apply_session_max_points(exam_submission, session_obj.max_total_points)
+            _step(f"Puntuaciones ajustadas a {session_obj.max_total_points} pts (configuración de convocatoria).")
+
         # 5. Grade (uses caching wrapper for solver calls)
         _step("Corrigiendo respuestas con IA...")
         bank = SolutionBank([])
@@ -325,6 +370,16 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
         db.commit()
         _save_token_usage(db, real_gemini, "grade_submission", submission.session_id, submission_id)
         _step(f"✓ Completado: {result.student_name or '?'} — {result.total_points:.2f}/{result.max_total_points:.2f} pts")
+
+        # Actualizar snapshot de historial tras cada corrección
+        try:
+            from app.db_models import ExamSession as _ES, SessionHistory as _SH
+            from app.routers.sessions import _snapshot_session
+            sess = db.get(_ES, submission.session_id)
+            if sess:
+                _snapshot_session(sess, db)
+        except Exception:
+            pass
 
     except Exception:
         tb = traceback.format_exc()
@@ -512,6 +567,18 @@ def _run_solve_questions(session_id: int, db_path: str, config_overrides: dict) 
                     exam_model=exam_sub.exam_model,
                     course_level=course_level,
                 )
+                if not solved.can_solve or solved.confidence == 0.0:
+                    _step(f"  ↺ {question_id_str}.{part_id_str} no resuelto con texto — reintentando leyendo imagen...")
+                    page_imgs = [pi.image_path for pi in page_images]
+                    solved = gemini.solve_math_question(
+                        question_statement=full_statement,
+                        question_id=question_id_str,
+                        part_id=part_id_str,
+                        exam_model=exam_sub.exam_model,
+                        course_level=course_level,
+                        image_paths=page_imgs,
+                        read_from_image=True,
+                    )
                 row.solved_json = solved.model_dump_json()
                 if solved.can_solve and solved.confidence > 0.0:
                     row.status = "ai_solved"
@@ -573,8 +640,6 @@ def _run_extract_teacher_solutions(
         from config import AppConfig
         from gemini_client import GeminiClient
         from pdf_processor import convert_pdf_to_images
-        from image_preprocessing import preprocess_image
-        from exam_parser import analyze_pages_with_gemini, build_submission_from_pdf, normalize_submission_structure
 
         cfg = AppConfig(**config_overrides)
 
@@ -613,14 +678,7 @@ def _run_extract_teacher_solutions(
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         page_images = convert_pdf_to_images(pdf_path, temp_dir, dpi=cfg.dpi, poppler_path=cfg.poppler_path)
-        _step(f"PDF convertido: {len(page_images)} página(s). Analizando con IA...")
-
-        if cfg.preprocess_images:
-            for pi in page_images:
-                try:
-                    preprocess_image(pi.image_path)
-                except Exception:
-                    pass
+        _step(f"PDF convertido: {len(page_images)} página(s). Leyendo respuestas del profesor...")
 
         gemini = GeminiClient(
             model=cfg.gemini_model,
@@ -630,50 +688,31 @@ def _run_extract_teacher_solutions(
             request_timeout_seconds=cfg.request_timeout_seconds,
         )
 
-        _step(f"Analizando página 1/{len(page_images)} del PDF del profesor...")
-        page_extractions = analyze_pages_with_gemini(
-            page_images=page_images,
-            gemini_client=gemini,
-            reanalysis_threshold=cfg.reanalysis_threshold,
-            progress_callback=lambda cur, tot: _step(
-                f"Página {cur}/{tot} analizada"
-                + (" ✓" if cur == tot else " — analizando siguiente...")
-            ),
-        )
+        image_paths = [pi.image_path for pi in page_images]
+        extraction = gemini.extract_teacher_solutions_from_pages(image_paths)
 
-        exam_sub = build_submission_from_pdf(page_extractions, pdf_path.name)
-        exam_sub = normalize_submission_structure(exam_sub)
-
-        total_parts = sum(len(q.parts) for q in exam_sub.questions)
-        _step(f"Estructura detectada: {len(exam_sub.questions)} ejercicio(s), {total_parts} apartado(s). Guardando soluciones...")
+        total_parts = len(extraction.solutions)
+        _step(f"Respuestas leídas: {total_parts} apartado(s) encontrados. Guardando...")
 
         # Borrar soluciones anteriores
         db.query(SessionSolution).filter(SessionSolution.session_id == session_id).delete()
         db.commit()
 
-        # Crear una solución por cada apartado encontrado en el PDF del profesor
         created = 0
-        for question in exam_sub.questions:
-            statement_text = (question.statement or "").strip()
-            for part in question.parts:
-                part_statement = (part.statement or "").strip()
-                # La respuesta del "alumno" en el PDF del profesor es la respuesta correcta
-                answer = (part.student_answer or "").strip()
-                row = SessionSolution(
-                    session_id=session_id,
-                    question_id=question.question_id,
-                    part_id=part.part_id,
-                    question_statement=statement_text or None,
-                    part_statement=part_statement or None,
-                    final_answer=answer or None,
-                    status="ai_solved" if answer else "ai_failed",
-                )
-                db.add(row)
-                created += 1
+        for item in extraction.solutions:
+            row = SessionSolution(
+                session_id=session_id,
+                question_id=item.question_id,
+                part_id=item.part_id,
+                final_answer=item.answer or None,
+                status="ai_solved" if item.answer else "ai_failed",
+            )
+            db.add(row)
+            created += 1
         db.commit()
 
         _save_token_usage(db, gemini, "extract_teacher_pdf", session_id, None)
-        _step(f"✓ Extracción completada: {created} apartado(s) encontrados. Revisa y valida las respuestas.")
+        _step(f"✓ Listo: {created} apartado(s) extraídos del PDF del profesor. Revisa y valida las respuestas.")
     except Exception:
         import traceback
         logger.error(f"[Sesión {session_id}] ERROR en extract_teacher_solutions:\n{traceback.format_exc()}")

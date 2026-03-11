@@ -21,8 +21,8 @@
     <div class="text-xs text-gray-500 mt-1">Tokens totales</div>
   </div>
   <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 text-center">
-    <div class="text-2xl font-bold text-emerald-700">${{ "%.3f"|format(grand.cost) }}</div>
-    <div class="text-xs text-gray-500 mt-1">Coste total (USD)</div>
+    <div class="text-2xl font-bold text-emerald-700">{{ "%.3f"|format(grand.cost) }} €</div>
+    <div class="text-xs text-gray-500 mt-1">Coste total (EUR)</div>
   </div>
   <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 text-center">
     <div class="text-2xl font-bold text-blue-700">{{ grand.done_exams }}</div>
@@ -31,7 +31,7 @@
   <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 text-center">
     <div class="text-2xl font-bold text-purple-700">
       {% if grand.cost_per_exam is not none %}
-        ${{ "%.4f"|format(grand.cost_per_exam) }}
+        {{ "%.4f"|format(grand.cost_per_exam) }} €
       {% else %}—{% endif %}
     </div>
     <div class="text-xs text-gray-500 mt-1">Coste medio / examen</div>
@@ -75,12 +75,12 @@
           <div class="text-xs text-gray-400">exámenes</div>
         </div>
         <div class="text-center min-w-[70px]">
-          <div class="font-mono font-bold text-emerald-700">${{ "%.4f"|format(item.totals.cost) }}</div>
+          <div class="font-mono font-bold text-emerald-700">{{ "%.4f"|format(item.totals.cost) }} €</div>
           <div class="text-xs text-gray-400">total</div>
         </div>
         <div class="text-center min-w-[70px]">
           <div class="font-mono font-bold text-purple-700">
-            {% if item.cost_per_exam is not none %}${{ "%.4f"|format(item.cost_per_exam) }}{% else %}—{% endif %}
+            {% if item.cost_per_exam is not none %}{{ "%.4f"|format(item.cost_per_exam) }} €{% else %}—{% endif %}
           </div>
           <div class="text-xs text-gray-400">por examen</div>
         </div>
@@ -98,7 +98,7 @@
             <span>{{ "{:,}".format(op.subtotal.input) }} entrada</span>
             <span>{{ "{:,}".format(op.subtotal.output) }} salida</span>
             <span class="font-semibold text-gray-700">{{ "{:,}".format(op.subtotal.total) }} total</span>
-            <span class="font-bold text-emerald-700">${{ "%.4f"|format(op.subtotal.cost) }}</span>
+            <span class="font-bold text-emerald-700">{{ "%.4f"|format(op.subtotal.cost) }} €</span>
           </div>
         </div>
         <!-- Tabla por modelo -->
@@ -121,7 +121,7 @@
               <td class="py-1 text-right font-mono">{{ "{:,}".format(m.input) }}</td>
               <td class="py-1 text-right font-mono">{{ "{:,}".format(m.output) }}</td>
               <td class="py-1 text-right font-mono font-semibold text-gray-700">{{ "{:,}".format(m.total) }}</td>
-              <td class="py-1 text-right font-mono text-emerald-700">${{ "%.5f"|format(m.cost) }}</td>
+              <td class="py-1 text-right font-mono text-emerald-700">{{ "%.5f"|format(m.cost) }} €</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -149,12 +149,12 @@
         </div>
         <div>
           <span class="text-gray-400">Coste total:</span>
-          <span class="font-mono font-bold text-emerald-700 ml-1">${{ "%.4f"|format(item.totals.cost) }}</span>
+          <span class="font-mono font-bold text-emerald-700 ml-1">{{ "%.4f"|format(item.totals.cost) }} €</span>
         </div>
         {% if item.cost_per_exam is not none %}
         <div>
           <span class="text-gray-400">Coste medio / examen ({{ item.done_exams }} corregidos):</span>
-          <span class="font-mono font-bold text-purple-700 ml-1">${{ "%.5f"|format(item.cost_per_exam) }}</span>
+          <span class="font-mono font-bold text-purple-700 ml-1">{{ "%.5f"|format(item.cost_per_exam) }} €</span>
         </div>
         {% endif %}
       </div>
@@ -180,12 +180,12 @@
       <div class="text-xs text-gray-400">tokens salida</div>
     </div>
     <div>
-      <div class="text-xl font-bold font-mono text-emerald-400">${{ "%.3f"|format(grand.cost) }}</div>
-      <div class="text-xs text-gray-400">coste total USD</div>
+      <div class="text-xl font-bold font-mono text-emerald-400">{{ "%.3f"|format(grand.cost) }} €</div>
+      <div class="text-xs text-gray-400">coste total EUR</div>
     </div>
     <div>
       <div class="text-xl font-bold font-mono text-yellow-300">
-        {% if grand.cost_per_exam is not none %}${{ "%.4f"|format(grand.cost_per_exam) }}{% else %}—{% endif %}
+        {% if grand.cost_per_exam is not none %}{{ "%.4f"|format(grand.cost_per_exam) }} €{% else %}—{% endif %}
       </div>
       <div class="text-xs text-gray-400">coste medio / examen</div>
     </div>
@@ -193,7 +193,7 @@
 </div>
 
 <p class="text-xs text-gray-400 mt-4 text-center">
-  Precios de referencia (USD/millón de tokens): Flash $0.15 entrada / $0.60 salida · Pro $1.25 / $10.00.
+  Precios de referencia (Flash 0,14 €/0,55 € · Pro 1,15 €/9,20 € por millón de tokens, conversión USD→EUR aprox. 0,92).
   Los precios reales pueden variar. Consulta
   <a href="https://ai.google.dev/pricing" target="_blank" class="underline">ai.google.dev/pricing</a>.
 </p>

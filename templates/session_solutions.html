@@ -323,6 +323,15 @@
     {% elif sol.status == "ai_failed" %}
     <div class="px-5 py-3 text-sm text-red-600 italic">
       La IA no pudo resolver este apartado. Valida manualmente o sube una imagen con la solución.
+      {% if sol.solved_json %}
+      {% set _f = sol.solved_json | from_json %}
+      {% if _f.get('notes') %}
+      <div class="mt-1 text-xs text-red-500 not-italic"><span class="font-semibold">Motivo:</span> {{ _f.get('notes') }}</div>
+      {% endif %}
+      {% if _f.get('incidents') %}
+      <div class="mt-0.5 text-xs text-red-400 not-italic">{{ _f.get('incidents') | join(' · ') }}</div>
+      {% endif %}
+      {% endif %}
     </div>
     {% endif %}
 
@@ -344,6 +353,12 @@
           <div><span class="font-medium">Pasos:</span> {{ solved.get('expected_steps') | join(' → ') }}</div>
           {% endif %}
           <div><span class="font-medium">Confianza:</span> {{ "%.0f%%"|format((solved.get('confidence', 0) * 100)) }}</div>
+          {% if solved.get('notes') %}
+          <div><span class="font-medium">Notas IA:</span> {{ solved.get('notes') }}</div>
+          {% endif %}
+          {% if solved.get('incidents') %}
+          <div><span class="font-medium">Incidencias:</span> {{ solved.get('incidents') | join(' · ') }}</div>
+          {% endif %}
         </div>
         {% endif %}
 

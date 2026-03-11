@@ -7,11 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.db_models import ExamSession, Submission, TokenUsage, User
+from app.db_models import ExamSession, SessionHistory, Submission, TokenUsage, User
 
 router = APIRouter(prefix="/reports")
 
-# Precios por millón de tokens (USD) — misma tabla que sessions.py
+# Precios por millón de tokens (USD)
 _TOKEN_PRICES: dict[str, dict[str, float]] = {
     "gemini-2.5-pro":   {"input": 1.25,  "output": 10.0},
     "gemini-2.5-flash": {"input": 0.15,  "output": 0.60},
@@ -19,6 +19,8 @@ _TOKEN_PRICES: dict[str, dict[str, float]] = {
     "gemini-1.5-pro":   {"input": 1.25,  "output": 5.00},
     "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
 }
+
+_USD_TO_EUR = 0.92
 
 _OP_LABELS = {
     "extract_solutions":   "Extracción IA",
@@ -32,7 +34,8 @@ def _cost(model: str, inp: int, out: int) -> float:
         (v for k, v in _TOKEN_PRICES.items() if model.startswith(k)),
         {"input": 0.0, "output": 0.0},
     )
-    return (inp * prices["input"] + out * prices["output"]) / 1_000_000
+    usd = (inp * prices["input"] + out * prices["output"]) / 1_000_000
+    return usd * _USD_TO_EUR
 
 
 @router.get("/usage", response_class=HTMLResponse)
@@ -138,3 +141,31 @@ def _add(d: dict, inp: int, out: int, total: int, calls: int, cost: float) -> No
     d["total"] += total
     d["calls"] += calls
     d["cost"] += cost
+
+
+@router.get("/history", response_class=HTMLResponse)
+def history_report(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    rows = db.query(SessionHistory).order_by(SessionHistory.snapshot_at.desc()).all()
+    active_ids = {s.id for s in db.query(ExamSession).all()}
+
+    # Totales globales
+    grand_tokens = sum(r.total_tokens for r in rows)
+    grand_cost = sum(r.total_cost_eur for r in rows)
+    grand_exams = sum(r.graded_submissions for r in rows)
+
+    return templates.TemplateResponse(
+        "reports_history.html",
+        {
+            "request": request,
+            "user": current_user,
+            "rows": rows,
+            "active_ids": active_ids,
+            "grand_tokens": grand_tokens,
+            "grand_cost": grand_cost,
+            "grand_exams": grand_exams,
+        },
+    )

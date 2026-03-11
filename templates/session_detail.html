@@ -45,8 +45,99 @@
       </button>
     </form>
     {% endif %}
+    <form method="post" action="/sessions/{{ session.id }}/delete"
+          onsubmit="return confirm('¿Eliminar la convocatoria «{{ session.name }}» y todos sus datos?\n\nSe guardará un registro en el historial.\nEsta acción no se puede deshacer.')">
+      <button class="border border-red-300 text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg text-sm transition">
+        Eliminar
+      </button>
+    </form>
   </div>
 </div>
+
+<!-- ── Stepper de flujo ───────────────────────────────────────────── -->
+{% set grading_started = submissions | selectattr("status", "equalto", "processing") | list | length > 0 or done_count > 0 or error_count > 0 %}
+{% set step1_done = submissions | length > 0 %}
+{% set step2_done = solutions_total > 0 and solutions_validated == solutions_total %}
+{% set step3_done = done_count > 0 %}
+{% if not step3_done %}
+<div class="bg-white border border-gray-200 rounded-xl px-5 py-4 mb-5">
+  <ol class="flex items-start gap-0">
+
+    {# Paso 1: Subir PDFs #}
+    <li class="flex-1 flex flex-col items-center text-center gap-1">
+      <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold
+        {% if step1_done %}bg-green-500 text-white{% else %}bg-blue-600 text-white ring-2 ring-blue-300{% endif %}">
+        {% if step1_done %}✓{% else %}1{% endif %}
+      </div>
+      <span class="text-xs font-semibold {% if step1_done %}text-green-600{% elif not step1_done %}text-blue-700{% else %}text-gray-400{% endif %}">
+        Subir exámenes
+      </span>
+      {% if not step1_done %}
+      <a href="/sessions/{{ session.id }}/upload"
+         class="mt-1 text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded-lg font-semibold transition">
+        Subir PDFs →
+      </a>
+      {% else %}
+      <span class="text-xs text-gray-400">{{ submissions | length }} PDF(s)</span>
+      {% endif %}
+    </li>
+
+    <div class="flex-none mt-3.5 w-8 h-px {% if step1_done %}bg-green-400{% else %}bg-gray-200{% endif %}"></div>
+
+    {# Paso 2: Soluciones #}
+    <li class="flex-1 flex flex-col items-center text-center gap-1">
+      <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold
+        {% if step2_done %}bg-green-500 text-white
+        {% elif step1_done and not step2_done %}bg-purple-600 text-white ring-2 ring-purple-300
+        {% else %}bg-gray-200 text-gray-400{% endif %}">
+        {% if step2_done %}✓{% else %}2{% endif %}
+      </div>
+      <span class="text-xs font-semibold
+        {% if step2_done %}text-green-600
+        {% elif step1_done %}text-purple-700
+        {% else %}text-gray-400{% endif %}">
+        Soluciones
+      </span>
+      {% if step1_done and not step2_done %}
+      <a href="/sessions/{{ session.id }}/solutions"
+         class="mt-1 text-xs bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded-lg font-semibold transition">
+        Configurar →
+      </a>
+      {% elif step2_done %}
+      <span class="text-xs text-gray-400">{{ solutions_validated }}/{{ solutions_total }} validadas</span>
+      {% endif %}
+    </li>
+
+    <div class="flex-none mt-3.5 w-8 h-px {% if step2_done %}bg-green-400{% else %}bg-gray-200{% endif %}"></div>
+
+    {# Paso 3: Corregir #}
+    <li class="flex-1 flex flex-col items-center text-center gap-1">
+      <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold
+        {% if step3_done %}bg-green-500 text-white
+        {% elif step2_done %}bg-green-600 text-white ring-2 ring-green-300
+        {% else %}bg-gray-200 text-gray-400{% endif %}">
+        {% if step3_done %}✓{% else %}3{% endif %}
+      </div>
+      <span class="text-xs font-semibold
+        {% if step3_done %}text-green-600
+        {% elif step2_done %}text-green-700
+        {% else %}text-gray-400{% endif %}">
+        Corregir
+      </span>
+      {% if step2_done and not grading_started %}
+      <form method="post" action="/sessions/{{ session.id }}/start-grading" class="mt-1">
+        <button class="text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded-lg font-semibold transition">
+          Iniciar →
+        </button>
+      </form>
+      {% elif grading_started and not step3_done %}
+      <span class="text-xs text-gray-400">En curso...</span>
+      {% endif %}
+    </li>
+
+  </ol>
+</div>
+{% endif %}
 
 <!-- Aviso si hay exámenes esperando validación de soluciones (solo si NO se está corrigiendo ya) -->
 {% set grading_started = submissions | selectattr("status", "equalto", "processing") | list | length > 0 or done_count > 0 or error_count > 0 %}
@@ -171,7 +262,7 @@
     </div>
     <div class="flex items-center gap-4">
       <span class="text-sm font-bold text-emerald-700">
-        ~${{ "%.4f"|format(token_summary.grand.cost_usd) }} USD
+        ~{{ "%.4f"|format(token_summary.grand.cost_usd) }} €
       </span>
       <svg class="h-4 w-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
@@ -198,7 +289,7 @@
           <td class="py-1.5 text-right font-mono">{{ "{:,}".format(data.input) }}</td>
           <td class="py-1.5 text-right font-mono">{{ "{:,}".format(data.output) }}</td>
           <td class="py-1.5 text-right font-mono font-semibold">{{ "{:,}".format(data.total) }}</td>
-          <td class="py-1.5 text-right font-mono text-emerald-700">${{ "%.4f"|format(data.cost_usd) }}</td>
+          <td class="py-1.5 text-right font-mono text-emerald-700">{{ "%.4f"|format(data.cost_usd) }} €</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -209,21 +300,21 @@
           <td class="pt-2 text-right font-mono">{{ "{:,}".format(token_summary.grand.input) }}</td>
           <td class="pt-2 text-right font-mono">{{ "{:,}".format(token_summary.grand.output) }}</td>
           <td class="pt-2 text-right font-mono">{{ "{:,}".format(token_summary.grand.total) }}</td>
-          <td class="pt-2 text-right font-mono text-emerald-700">${{ "%.4f"|format(token_summary.grand.cost_usd) }}</td>
+          <td class="pt-2 text-right font-mono text-emerald-700">{{ "%.4f"|format(token_summary.grand.cost_usd) }} €</td>
         </tr>
         {% if submissions | selectattr("status", "equalto", "done") | list | length > 0 %}
         {% set done = submissions | selectattr("status", "equalto", "done") | list | length %}
         <tr class="text-gray-400 text-xs">
           <td colspan="5" class="pt-1">Coste medio por examen corregido</td>
           <td class="pt-1 text-right font-mono text-gray-500">
-            ~${{ "%.4f"|format(token_summary.grand.cost_usd / done) }}
+            ~{{ "%.4f"|format(token_summary.grand.cost_usd / done) }} €
           </td>
         </tr>
         {% endif %}
       </tfoot>
     </table>
     <p class="text-xs text-gray-400 mt-3">
-      Precios de referencia (USD/millón de tokens): Flash $0.15 entrada / $0.60 salida · Pro $1.25 / $10.00.
+      Precios de referencia (Flash 0,14 €/0,55 € · Pro 1,15 €/9,20 € por millón de tokens, conversión USD→EUR aprox. 0,92).
       Los precios reales pueden variar. Consulta <a href="https://ai.google.dev/pricing" target="_blank" class="underline">ai.google.dev/pricing</a>.
     </p>
   </div>
@@ -238,7 +329,6 @@
       <tr>
         <th class="text-left px-4 py-3 font-semibold text-gray-700">Alumno</th>
         <th class="text-left px-4 py-3 font-semibold text-gray-700">Archivo</th>
-        <th class="text-center px-4 py-3 font-semibold text-gray-700">Modelo</th>
         {% for col in all_columns %}
         <th class="text-center px-3 py-3 font-semibold text-gray-700">{{ col }}</th>
         {% endfor %}
@@ -249,8 +339,6 @@
     </thead>
     <tbody class="divide-y divide-gray-100">
       {% for sub in submissions %}
-      {# Modelo: solo mostrar si parece un identificador corto (≤15 chars), no un título #}
-      {% set model_display = sub.exam_model if (sub.exam_model and sub.exam_model | length <= 15) else "—" %}
       {# Normalización de nota si la convocatoria tiene max_total_points fijado #}
       {% if session.max_total_points and sub.max_total_points and sub.max_total_points > 0 %}
         {% set display_total = (sub.total_points / sub.max_total_points * session.max_total_points) | round(2) %}
@@ -262,7 +350,7 @@
       <tr class="hover:bg-gray-50 transition">
         <td class="px-4 py-3 font-medium">{{ sub.student_name or "—" }}</td>
         <td class="px-4 py-3 text-gray-500 text-xs truncate max-w-xs">{{ sub.source_filename }}</td>
-        <td class="px-4 py-3 text-center text-gray-600">{{ model_display }}</td>
+
 
         {% if sub.status == "done" %}
           {% set parts_by_col = {} %}
