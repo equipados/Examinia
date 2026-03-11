@@ -296,7 +296,7 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
         _step(f"Convirtiendo PDF a imágenes ({pdf_path.name})...")
         poppler_path = cfg.poppler_path
         page_images = convert_pdf_to_images(pdf_path, temp_dir, dpi=cfg.dpi, poppler_path=poppler_path)
-        _step(f"{len(page_images)} página(s) convertidas. Analizando con Gemini...")
+        _step(f"{len(page_images)} página(s) convertidas. Analizando con {cfg.gemini_model}...")
 
         # 2. Optional preprocessing
         if cfg.preprocess_images:
@@ -340,7 +340,7 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
             _step(f"Puntuaciones ajustadas a {session_obj.max_total_points} pts (configuración de convocatoria).")
 
         # 5. Grade (uses caching wrapper for solver calls)
-        _step("Corrigiendo respuestas con IA...")
+        _step(f"Corrigiendo respuestas con {cfg.gemini_model} (assess) + {cfg.gemini_solver_model} (solver)...")
         bank = SolutionBank([])
         reports_dir = Path(upload_dir) / "informes"
         reports_dir.mkdir(parents=True, exist_ok=True)
@@ -544,7 +544,8 @@ def _run_solve_questions(session_id: int, db_path: str, config_overrides: dict) 
         exam_sub = normalize_submission_structure(exam_sub)
 
         total_parts = sum(len(q.parts) for q in exam_sub.questions)
-        _step(f"Examen analizado: {len(exam_sub.questions)} ejercicio(s), {total_parts} apartado(s). Comenzando resolución...")
+        _solver_model = getattr(solver, "model", solver_label)
+        _step(f"Examen analizado: {len(exam_sub.questions)} ejercicio(s), {total_parts} apartado(s). Solver: {_solver_model}. Comenzando resolución...")
 
         course_level = exam_sub.course_level or (session.course_level if session else None)
 
@@ -600,10 +601,10 @@ def _run_solve_questions(session_id: int, db_path: str, config_overrides: dict) 
                     course_level=course_level,
                 )
                 if not solved.can_solve or solved.confidence == 0.0:
-                    _step(f"  ↺ {question_id_str}.{part_id_str} no resuelto con texto — reintentando leyendo imagen...")
-                    page_imgs = [pi.image_path for pi in page_images]
-                    # Reintento con imagen solo disponible en Gemini
                     retry_solver = gemini if solver_label.startswith("openai") else solver
+                    retry_model = getattr(retry_solver, "solver_model", getattr(retry_solver, "model", "gemini"))
+                    _step(f"  ↺ {question_id_str}.{part_id_str} no resuelto — reintentando con imagen ({retry_model})...")
+                    page_imgs = [pi.image_path for pi in page_images]
                     solved = retry_solver.solve_math_question(
                         question_statement=full_statement,
                         question_id=question_id_str,
@@ -714,8 +715,6 @@ def _run_extract_teacher_solutions(
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         page_images = convert_pdf_to_images(pdf_path, temp_dir, dpi=cfg.dpi, poppler_path=cfg.poppler_path)
-        _step(f"PDF convertido: {len(page_images)} página(s). Leyendo respuestas del profesor...")
-
         gemini = GeminiClient(
             model=cfg.gemini_model,
             solver_model=cfg.gemini_solver_model,
@@ -724,6 +723,7 @@ def _run_extract_teacher_solutions(
             request_timeout_seconds=cfg.request_timeout_seconds,
         )
 
+        _step(f"PDF convertido: {len(page_images)} página(s). Leyendo respuestas del profesor con {gemini.model}...")
         image_paths = [pi.image_path for pi in page_images]
         extraction = gemini.extract_teacher_solutions_from_pages(image_paths)
 

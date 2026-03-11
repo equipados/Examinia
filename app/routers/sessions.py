@@ -40,6 +40,7 @@ def create_session(
     date: str = Form(""),
     notes: str = Form(""),
     max_total_points: str = Form(""),
+    solver_provider: str = Form("gemini-pro"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RedirectResponse:
@@ -55,6 +56,7 @@ def create_session(
         date=date or None,
         notes=notes or None,
         max_total_points=mtp,
+        solver_provider=solver_provider if solver_provider in _VALID_SOLVER_PROVIDERS else "gemini-pro",
     )
     db.add(session)
     db.commit()
@@ -416,18 +418,19 @@ def validate_all_solutions(
 @router.post("/{session_id}/solutions/extract")
 def extract_and_solve(
     session_id: int,
+    solver_provider: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RedirectResponse:
     """Lanza la tarea background de extracción + resolución IA."""
     from app import scheduler
-    # Marcar síncronamente como "iniciando" antes de lanzar el hilo,
-    # para que la página de soluciones muestre el log en lugar de las opciones.
     session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
     if session:
         session.current_step = "Iniciando extracción..."
         session.session_log = "[]"
         session.solution_mode = "ai"
+        if solver_provider in _VALID_SOLVER_PROVIDERS:
+            session.solver_provider = solver_provider
         db.commit()
     scheduler.solve_questions_for_session(session_id, _db_path, _config_overrides)
     return RedirectResponse(url=f"/sessions/{session_id}/solutions", status_code=status.HTTP_302_FOUND)

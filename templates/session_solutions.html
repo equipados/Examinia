@@ -214,7 +214,14 @@
         La IA analiza el examen y resuelve cada ejercicio. Tú revisas y validas (o corriges) las respuestas antes de corregir.
         Si no puede resolver algún apartado, puedes subir una imagen con la solución.
       </p>
-      <form method="post" action="/sessions/{{ session.id }}/solutions/extract" class="mt-auto">
+      <form method="post" action="/sessions/{{ session.id }}/solutions/extract" class="mt-auto space-y-2">
+        <select name="solver_provider"
+                class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="gemini-pro"   {% if session.solver_provider == "gemini-pro"   or not session.solver_provider %}selected{% endif %}>Gemini 2.5 Pro</option>
+          <option value="gemini-flash" {% if session.solver_provider == "gemini-flash" %}selected{% endif %}>Gemini 2.5 Flash</option>
+          <option value="openai-gpt4o" {% if session.solver_provider == "openai-gpt4o" %}selected{% endif %}>OpenAI GPT-4o</option>
+          <option value="openai-o4mini"{% if session.solver_provider == "openai-o4mini"%}selected{% endif %}>OpenAI o4-mini</option>
+        </select>
         <button class="w-full bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
           Extraer y resolver con IA →
         </button>
