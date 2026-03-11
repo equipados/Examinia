@@ -252,6 +252,12 @@
     var pctEl = document.getElementById('grading-pct');
     if (pctEl) pctEl.textContent = data.pct + '% completado';
 
+    // Stats cards en tiempo real
+    var el;
+    el = document.getElementById('stat-done');    if (el) el.textContent = data.done_count;
+    el = document.getElementById('stat-pending'); if (el) el.textContent = data.processing_count + data.pending_count;
+    el = document.getElementById('stat-error');   if (el) el.textContent = data.error_count;
+
     // Logs de submissions
     if (!gl) return;
     var html = '';
@@ -290,7 +296,8 @@
         if (data.still_active) {
           setTimeout(poll, 2000);
         } else {
-          location.reload();  // terminó → recarga una sola vez para mostrar resultados
+          // Espera 1s para que el último commit de BD propague, luego recarga
+          setTimeout(function(){ location.reload(); }, 1000);
         }
       })
       .catch(function(){ setTimeout(poll, 4000); });
@@ -304,19 +311,19 @@
 <!-- Stats summary -->
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
   <div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
-    <div class="text-2xl font-bold text-gray-900">{{ submissions|length }}</div>
+    <div class="text-2xl font-bold text-gray-900" id="stat-total">{{ submissions|length }}</div>
     <div class="text-xs text-gray-500">Total</div>
   </div>
   <div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
-    <div class="text-2xl font-bold text-green-600">{{ done_count }}</div>
+    <div class="text-2xl font-bold text-green-600" id="stat-done">{{ done_count }}</div>
     <div class="text-xs text-gray-500">Procesados</div>
   </div>
   <div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
-    <div class="text-2xl font-bold text-yellow-600">{{ pending }}</div>
+    <div class="text-2xl font-bold text-yellow-600" id="stat-pending">{{ pending }}</div>
     <div class="text-xs text-gray-500">Pendientes</div>
   </div>
   <div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
-    <div class="text-2xl font-bold text-red-600">{{ error_count }}</div>
+    <div class="text-2xl font-bold text-red-600" id="stat-error">{{ error_count }}</div>
     <div class="text-xs text-gray-500">Errores</div>
   </div>
 </div>
