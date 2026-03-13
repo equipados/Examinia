@@ -24,7 +24,7 @@ def _column_sort_key(column_id: str) -> tuple[int, str]:
     return (q_num, part)
 
 
-def export_results_to_excel(results: list[ExamGradeResult], output_file: Path) -> Path:
+def export_results_to_excel(results: list[ExamGradeResult], output_file: Path, session_name: str = "") -> Path:
     ensure_dir(output_file.parent)
     part_columns = sorted(
         {
@@ -36,16 +36,22 @@ def export_results_to_excel(results: list[ExamGradeResult], output_file: Path) -
         key=_column_sort_key,
     )
 
-    headers = ["Alumno", "Archivo", "Curso", "Modelo", *part_columns, "Total", "Revision manual", "Incidencias", "Informe"]
+    # "Modelo" solo si el valor es corto (≤15 chars); si es título del examen, se omite
+    base_headers = ["Convocatoria", "Alumno", "Archivo", "Curso", "Modelo"]
+    headers = [*base_headers, *part_columns, "Total", "Revision manual", "Incidencias", "Informe"]
     rows: list[dict[str, object]] = []
     status_rows: list[dict[str, str]] = []
 
     for result in results:
+        model_val = result.exam_model or ""
+        if len(model_val) > 15:
+            model_val = ""
         row: dict[str, object] = {
+            "Convocatoria": session_name,
             "Alumno": result.student_name,
             "Archivo": result.source_file,
             "Curso": _COURSE_LABELS.get(result.course_level or "", result.course_level or ""),
-            "Modelo": result.exam_model or "",
+            "Modelo": model_val,
             "Total": result.total_points,
             "Incidencias": "; ".join(result.incidents),
             "Informe": result.report_path or "",

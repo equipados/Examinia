@@ -31,8 +31,10 @@
                 class="border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
           <option value="gemini-pro"   {% if solver_provider == "gemini-pro"   %}selected{% endif %}>Gemini Pro</option>
           <option value="gemini-flash" {% if solver_provider == "gemini-flash" %}selected{% endif %}>Gemini Flash</option>
-          <option value="openai-gpt4o" {% if solver_provider == "openai-gpt4o" %}selected{% endif %}>OpenAI GPT-4o</option>
-          <option value="openai-o4mini"{% if solver_provider == "openai-o4mini"%}selected{% endif %}>OpenAI o4-mini</option>
+          <option value="openai-gpt4o"   {% if solver_provider == "openai-gpt4o"   %}selected{% endif %}>OpenAI GPT-4o</option>
+          <option value="openai-o4mini"  {% if solver_provider == "openai-o4mini"  %}selected{% endif %}>OpenAI o4-mini</option>
+          <option value="deepseek-v3"    {% if solver_provider == "deepseek-v3"    %}selected{% endif %}>DeepSeek V3</option>
+          <option value="deepseek-r1"    {% if solver_provider == "deepseek-r1"    %}selected{% endif %}>DeepSeek R1</option>
         </select>
       </form>
     </div>
@@ -364,6 +366,7 @@
       <thead>
         <tr class="text-gray-500 border-b border-gray-100">
           <th class="text-left py-1 font-medium">Operación</th>
+          <th class="text-left py-1 font-medium">Modelo IA</th>
           <th class="text-right py-1 font-medium">Llamadas API</th>
           <th class="text-right py-1 font-medium">Tokens entrada</th>
           <th class="text-right py-1 font-medium">Tokens salida</th>
@@ -375,6 +378,7 @@
         {% for op, data in token_summary.by_op.items() %}
         <tr class="text-gray-700">
           <td class="py-1.5 font-medium">{{ data.label }}</td>
+          <td class="py-1.5 font-mono text-xs text-gray-500">{{ data.model }}</td>
           <td class="py-1.5 text-right font-mono text-gray-500">{{ data.calls }}</td>
           <td class="py-1.5 text-right font-mono">{{ "{:,}".format(data.input) }}</td>
           <td class="py-1.5 text-right font-mono">{{ "{:,}".format(data.output) }}</td>
@@ -385,7 +389,7 @@
       </tbody>
       <tfoot>
         <tr class="border-t border-gray-200 font-bold text-gray-800">
-          <td class="pt-2">Total convocatoria</td>
+          <td class="pt-2" colspan="2">Total convocatoria</td>
           <td class="pt-2 text-right font-mono text-gray-500">{{ token_summary.grand.calls }}</td>
           <td class="pt-2 text-right font-mono">{{ "{:,}".format(token_summary.grand.input) }}</td>
           <td class="pt-2 text-right font-mono">{{ "{:,}".format(token_summary.grand.output) }}</td>
@@ -395,7 +399,7 @@
         {% if submissions | selectattr("status", "equalto", "done") | list | length > 0 %}
         {% set done = submissions | selectattr("status", "equalto", "done") | list | length %}
         <tr class="text-gray-400 text-xs">
-          <td colspan="5" class="pt-1">Coste medio por examen corregido</td>
+          <td colspan="6" class="pt-1">Coste medio por examen corregido</td>
           <td class="pt-1 text-right font-mono text-gray-500">
             ~{{ "%.4f"|format(token_summary.grand.cost_usd / done) }} €
           </td>
@@ -404,8 +408,14 @@
       </tfoot>
     </table>
     <p class="text-xs text-gray-400 mt-3">
-      Precios de referencia (Flash 0,14 €/0,55 € · Pro 1,15 €/9,20 € por millón de tokens, conversión USD→EUR aprox. 0,92).
-      Los precios reales pueden variar. Consulta <a href="https://ai.google.dev/pricing" target="_blank" class="underline">ai.google.dev/pricing</a>.
+      Precios de referencia por millón de tokens (conversión USD→EUR aprox. 0,92):<br>
+      <span class="font-medium text-blue-400">Gemini:</span> Flash 0,14 €/0,55 € · Pro 1,15 €/9,20 € —
+      <a href="https://ai.google.dev/pricing" target="_blank" class="underline">ai.google.dev/pricing</a><br>
+      <span class="font-medium text-green-500">OpenAI:</span> GPT-4o 2,30 €/9,20 € · o4-mini 1,01 €/4,05 € —
+      <a href="https://openai.com/api/pricing" target="_blank" class="underline">openai.com/api/pricing</a><br>
+      <span class="font-medium text-purple-500">DeepSeek:</span> V3 0,25 €/1,01 € · R1 0,51 €/2,01 € —
+      <a href="https://api-docs.deepseek.com/quick_start/pricing" target="_blank" class="underline">api-docs.deepseek.com/pricing</a><br>
+      Los precios reales pueden variar.
     </p>
   </div>
 </details>

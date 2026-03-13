@@ -45,10 +45,11 @@ def usage_report(
         op_entry = entry["ops"].setdefault(row.operation, {})
         model_entry = op_entry.setdefault(row.model, _zero())
 
-        c = _cost(row.model, row.input_tokens, row.output_tokens)
-        mdata["provider"] = _provider_of(row.model)
-        _add(model_entry, row.input_tokens, row.output_tokens, row.total_tokens, row.api_calls, c)
-        _add(entry["totals"], row.input_tokens, row.output_tokens, row.total_tokens, row.api_calls, c)
+        thinking = getattr(row, "thinking_tokens", 0) or 0
+        c = _cost(row.model, row.input_tokens, row.output_tokens, thinking)
+        model_entry["provider"] = _provider_of(row.model)
+        _add(model_entry, row.input_tokens, row.output_tokens, row.total_tokens, row.api_calls, c, thinking)
+        _add(entry["totals"], row.input_tokens, row.output_tokens, row.total_tokens, row.api_calls, c, thinking)
 
     # Construir lista ordenada de sesiones con datos
     sessions_report = []
@@ -64,7 +65,7 @@ def usage_report(
             models_list = []
             for model_name, mdata in models_dict.items():
                 models_list.append({"model": model_name, **mdata})
-                _add(op_total, mdata["input"], mdata["output"], mdata["total"], mdata["calls"], mdata["cost"])
+                _add(op_total, mdata["input"], mdata["output"], mdata["total"], mdata["calls"], mdata["cost"], mdata.get("thinking", 0))
             ops_list.append({
                 "key": op_key,
                 "label": _OP_LABELS.get(op_key, op_key),
@@ -91,7 +92,8 @@ def usage_report(
     grand_done = 0
     for item in sessions_report:
         _add(grand, item["totals"]["input"], item["totals"]["output"],
-             item["totals"]["total"], item["totals"]["calls"], item["totals"]["cost"])
+             item["totals"]["total"], item["totals"]["calls"], item["totals"]["cost"],
+             item["totals"].get("thinking", 0))
         grand_done += item["done_exams"]
     grand["cost_per_exam"] = grand["cost"] / grand_done if grand_done > 0 else None
     grand["done_exams"] = grand_done
@@ -109,12 +111,13 @@ def usage_report(
 
 
 def _zero() -> dict:
-    return {"input": 0, "output": 0, "total": 0, "calls": 0, "cost": 0.0}
+    return {"input": 0, "output": 0, "thinking": 0, "total": 0, "calls": 0, "cost": 0.0}
 
 
-def _add(d: dict, inp: int, out: int, total: int, calls: int, cost: float) -> None:
+def _add(d: dict, inp: int, out: int, total: int, calls: int, cost: float, thinking: int = 0) -> None:
     d["input"] += inp
     d["output"] += out
+    d["thinking"] = d.get("thinking", 0) + thinking
     d["total"] += total
     d["calls"] += calls
     d["cost"] += cost

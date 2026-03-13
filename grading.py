@@ -283,6 +283,7 @@ def grade_exam(
     strict_mode: bool = False,
     allow_ai_solver: bool = True,
     ai_solver_min_confidence: float = 0.75,
+    evaluation_criteria: str | None = None,
 ) -> ExamGradeResult:
     question_grades: list[QuestionGrade] = []
     incidents = list(submission.incidents)
@@ -321,23 +322,25 @@ def grade_exam(
                                 part_max=part_max,
                                 ai_solution=ai_solution,
                             )
-                            incidents.append(
-                                f"Se genero solucion IA desde enunciado en {question.question_id}.{part.part_id}."
-                            )
+                            # Distinguir si vino de caché del profesor o fue generada por IA
+                            if "validada por el profesor" not in (ai_solution.notes or ""):
+                                incidents.append(
+                                    f"Solución al ejercicio {question.question_id}.{part.part_id} generada automáticamente por IA (modo IA activo)."
+                                )
                         else:
                             template = _enrich_template_with_ai_solution(template, ai_solution)
                         if ai_solution.confidence < ai_solver_min_confidence:
                             incidents.append(
                                 (
-                                    f"Solucion IA con baja confianza en {question.question_id}.{part.part_id} "
-                                    f"({ai_solution.confidence:.2f}); se usa igualmente."
+                                    f"La IA resolvió el ejercicio {question.question_id}.{part.part_id} con baja confianza "
+                                    f"({ai_solution.confidence:.2f}); resultado usado igualmente."
                                 )
                             )
                     else:
                         incidents.append(
                             (
-                                f"IA no pudo resolver {question.question_id}.{part.part_id} "
-                                f"(can_solve={ai_solution.can_solve}, confianza={ai_solution.confidence:.2f})."
+                                f"La IA no pudo resolver el ejercicio {question.question_id}.{part.part_id}; "
+                                "la corrección se realizó sin solución de referencia."
                             )
                         )
                 except Exception as exc:
@@ -392,9 +395,6 @@ def grade_exam(
                     expected_final_answer="",
                     max_points=part_max,
                 )
-                incidents.append(
-                    f"Plantilla minima generada para {question.question_id}.{part.part_id}; sin respuesta esperada de referencia."
-                )
 
             part_max = round_points(part.max_points if part.max_points is not None else (template.max_points or 0.0))
             answer_for_assessment = (part.student_answer_raw or "").strip() or "; ".join(part.steps_detected)
@@ -406,6 +406,7 @@ def grade_exam(
                     extracted_part=part,
                     question_statement=question.statement,
                     course_level=submission.course_level,
+                    evaluation_criteria=evaluation_criteria,
                 )
             except Exception as exc:
                 incidents.append(

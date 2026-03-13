@@ -68,12 +68,14 @@ class GeminiClient:
             return
         inp = int(getattr(um, "prompt_token_count", 0) or 0)
         out = int(getattr(um, "candidates_token_count", 0) or 0)
+        think = int(getattr(um, "thoughts_token_count", 0) or 0)
         total = int(getattr(um, "total_token_count", 0) or 0)
         if total == 0:
-            total = inp + out
-        entry = self._usage.setdefault(model, {"input": 0, "output": 0, "total": 0, "calls": 0})
+            total = inp + out + think
+        entry = self._usage.setdefault(model, {"input": 0, "output": 0, "thinking": 0, "total": 0, "calls": 0})
         entry["input"] += inp
         entry["output"] += out
+        entry["thinking"] += think
         entry["total"] += total
         entry["calls"] += 1
 
@@ -567,6 +569,7 @@ class GeminiClient:
         temperature: float = 0.1,
         use_native_schema: bool = True,
         model_override: str | None = None,
+        disable_thinking: bool = False,
     ) -> T:
         self._respect_rate_limit()
         config_kwargs: dict[str, object] = {
@@ -575,6 +578,11 @@ class GeminiClient:
         }
         if use_native_schema:
             config_kwargs["response_schema"] = schema
+        if disable_thinking:
+            try:
+                config_kwargs["thinking_config"] = self._types.ThinkingConfig(thinking_budget=0)
+            except Exception:
+                pass
         config = self._types.GenerateContentConfig(**config_kwargs)
         contents = self._build_contents(prompt=prompt, image_paths=image_paths)
         target_model = model_override or self.model
@@ -613,6 +621,7 @@ class GeminiClient:
         image_paths: list[Path] | None = None,
         temperature: float = 0.1,
         model_override: str | None = None,
+        disable_thinking: bool = False,
     ) -> T:
         strict_prompt = prompt
         use_native_schema = self._native_schema_supported is not False
@@ -633,6 +642,7 @@ class GeminiClient:
                         temperature=temperature,
                         use_native_schema=use_native_schema,
                         model_override=model_override,
+                        disable_thinking=disable_thinking,
                     )
                     if use_native_schema and self._native_schema_supported is None:
                         self._native_schema_supported = True
@@ -647,7 +657,7 @@ class GeminiClient:
                     raise
                 except Exception as exc:
                     if use_native_schema and self._is_response_schema_unsupported_error(exc):
-                        logger.warning(
+                        logger.debug(
                             "Gemini rechazo response_schema nativo; se activa modo JSON puro + validacion Pydantic."
                         )
                         self._native_schema_supported = False
@@ -667,9 +677,15 @@ class GeminiClient:
                     raise RuntimeError(str(exc)) from exc
         raise RuntimeError("No se pudo obtener salida estructurada valida de Gemini")
 
-    def _generate_text(self, prompt: str, temperature: float = 0.3, model_override: str | None = None) -> str:
+    def _generate_text(self, prompt: str, temperature: float = 0.3, model_override: str | None = None, disable_thinking: bool = False) -> str:
         self._respect_rate_limit()
-        config = self._types.GenerateContentConfig(temperature=temperature)
+        config_kwargs: dict[str, object] = {"temperature": temperature}
+        if disable_thinking:
+            try:
+                config_kwargs["thinking_config"] = self._types.ThinkingConfig(thinking_budget=0)
+            except Exception:
+                pass
+        config = self._types.GenerateContentConfig(**config_kwargs)
         target_model = model_override or self.model
         response = self._client.models.generate_content(
             model=target_model,
@@ -700,7 +716,9 @@ Objetivo:
 - Detectar si esta pagina parece inicio de nuevo examen (`new_exam`), continuacion (`continuation`) o dudoso (`unknown`).
 - Extraer ejercicios y apartados con su respuesta manuscrita.
 - Extraer pasos intermedios del procedimiento cuando aparezcan.
-- Detectar puntuaciones si se ven (`2 puntos`, `1,5 ptos`, etc.).
+- Detectar puntuaciones: cada ejercicio puede llevar su puntuacion en negrita junto al numero,
+  formato "(3p)", "(5p)", "(2,5 pts)", "(2 puntos)", etc. Extrae ese valor en question.max_points.
+  Si los apartados tienen puntuacion individual, ponla en part.max_points; si no, deja 0.0.
 - Marcar incidentes cuando haya baja legibilidad o ambiguedad.
 
 Reglas:
@@ -768,14 +786,28 @@ Metadatos de esta pagina:
         )
 
     def extract_exam_questions(self, image_path: Path, source_file: str, page_number: int) -> PageExtraction:
-        prompt = f"""Eres un lector experto de examenes impresos de Matematicas II (2o Bachillerato, Espana).
+        prompt = f"""Eres un lector experto de examenes impresos de Matematicas (Bachillerato, Espana).
 Esta imagen es la HOJA IMPRESA del examen (texto mecanografiado, no manuscrito del alumno).
 
 Tarea UNICA: extraer la estructura del examen impreso.
+
+PUNTUACIONES (MUY IMPORTANTE):
+- Cada ejercicio lleva su puntuacion maxima indicada en negrita justo despues del numero,
+  en formato como "(3p)", "(3 puntos)", "(2,5 pts)", "(5p)", etc.
+  Ejemplo: "1. (3p) Estudia la continuidad..." → question max_points = 3.0
+  Ejemplo: "2. (5p) Calcula los limites..." → question max_points = 5.0
+  Pon ese valor en el campo max_points del ejercicio (question-level).
+- Si los apartados (a, b, c...) llevan puntuacion individual, ponla en el max_points del apartado.
+- Si los apartados NO tienen puntuacion individual pero el ejercicio tiene puntuacion total,
+  pon 0.0 en los apartados (el sistema la repartira automaticamente).
+
+ENUNCIADOS:
 - Para cada ejercicio: copia el ENUNCIADO COMPLETO tal como aparece impreso
   (incluyendo datos numericos, formulas, condiciones). No resumas.
-- Para cada apartado (a, b, c...): extrae su enunciado y la puntuacion maxima.
-  La puntuacion puede aparecer como "2 puntos", "1,5 ptos", "(2 pts)", etc.
+- Para cada apartado (a, b, c...): extrae su enunciado completo.
+- Si un ejercicio no tiene apartados, crea un unico apartado con part_id="single".
+
+OTROS DATOS:
 - Detecta nombre del alumno y modelo de examen si aparecen en el encabezado.
 - Detecta el curso: "1o_bachillerato" si pone 1o Bachillerato o similar,
   "2o_bachillerato" si pone 2o Bachillerato, null si no se especifica.
@@ -943,6 +975,7 @@ Metadatos de esta pagina:
         extracted_part: ExtractedPart,
         question_statement: str | None = None,
         course_level: str | None = None,
+        evaluation_criteria: str | None = None,
     ) -> GeminiAssessment:
         _course_label = {
             "1o_bachillerato": "1o Bachillerato",
@@ -966,7 +999,7 @@ Respuesta detectada del alumno:
   "ocr_confidence": {extracted_part.confidence}
 }}
 
-Criterios de evaluacion (estandar Bachillerato II):
+{f"Criterios de evaluacion especificos del examen:{chr(10)}{evaluation_criteria}{chr(10)}" if evaluation_criteria else ""}Criterios de evaluacion (estandar Bachillerato II):
 - correcto: resultado final correcto Y procedimiento coherente.
 - parcial: procedimiento correcto con error de calculo/signo en pasos finales (merecedor de credito parcial),
   O resultado correcto sin procedimiento visible, O procedimiento mayormente correcto con resultado erroneo.
@@ -996,7 +1029,7 @@ Devuelve SOLO estas claves:
   "reasoning_summary": "str"
 }}
 """
-        return self._generate_structured(prompt=prompt, schema=GeminiAssessment, temperature=0.1)
+        return self._generate_structured(prompt=prompt, schema=GeminiAssessment, temperature=0.1, disable_thinking=True)
 
     def solve_math_question(
         self,
@@ -1033,6 +1066,7 @@ hiperbola, parabola), funciones y continuidad avanzada."""
             prompt = f"""
 Eres un experto en Matematicas de {_course_label} (Espana).
 Se adjuntan las imagenes de las paginas de un examen impreso. El alumno ha escrito sus respuestas a mano — IGNORALAS completamente.
+IMPORTANTE: Responde SIEMPRE en español. Todos los campos de texto (expected_steps, notes, topic, incidents) deben estar en español.
 
 {_curriculum}
 
@@ -1044,7 +1078,7 @@ Instrucciones:
 3. Indica la respuesta final exacta en solved_final_answer (usa notacion matematica de texto:
    "x=2", "f'(x)=2x+1", "integral = x^3/3 + C", "lim = 1", "[[1,2],[3,4]]" para matrices).
 4. En accepted_equivalents incluye formas equivalentes habituales de la misma respuesta.
-5. En expected_steps lista los pasos intermedios principales que un alumno correcto mostraria.
+5. En expected_steps lista los pasos intermedios principales que un alumno correcto mostraria (en español).
 6. confidence: certeza de que la solucion es correcta (0.0-1.0).
 7. Si no encuentras el ejercicio o no puedes resolver con fiabilidad, indica can_solve=false.
 
@@ -1065,6 +1099,7 @@ Devuelve SOLO estas claves:
 Resuelve un apartado de Matematicas de {_course_label} (Espana) SOLO a partir del enunciado.
 Si el enunciado no permite resolver con fiabilidad, indica can_solve=false.
 No inventes datos no presentes en el enunciado.
+IMPORTANTE: Responde SIEMPRE en español. Todos los campos de texto (expected_steps, notes, topic, incidents) deben estar en español.
 
 {_curriculum}
 
@@ -1083,7 +1118,7 @@ Instrucciones:
    "x=2", "f'(x)=2x+1", "integral = x^3/3 + C", "lim = 1", "[[1,2],[3,4]]" para matrices).
 3. En accepted_equivalents incluye formas equivalentes habituales de la misma respuesta
    (p.ej. "2x" y "2*x", o "x^2-1" y "(x-1)(x+1)").
-4. En expected_steps lista los pasos intermedios principales que un alumno correcto mostraria.
+4. En expected_steps lista los pasos intermedios principales que un alumno correcto mostraria (en español).
 5. confidence: certeza de que la solucion es correcta (0.0-1.0).
 
 Devuelve SOLO estas claves:
@@ -1148,7 +1183,7 @@ Requisitos:
 - Explica por que obtiene esa puntuacion.
 - Si procede, sugiere revision manual.
 """
-        return self._generate_text(prompt=prompt, temperature=0.2)
+        return self._generate_text(prompt=prompt, temperature=0.2, disable_thinking=True)
 
     def extract_teacher_solutions_from_pages(
         self,
@@ -1157,23 +1192,34 @@ Requisitos:
         """Lee las soluciones correctas de las páginas del PDF del profesor."""
         prompt = """Eres un experto en matemáticas de Bachillerato (España).
 Las imágenes adjuntas son páginas de un examen RESUELTO por el profesor.
-Tu tarea es extraer SOLO las respuestas correctas finales de cada ejercicio y apartado.
+La primera página puede ser una carátula (título, datos del alumno, etc.) — ignórala y no extraigas datos de ella.
 
-Instrucciones:
-- Identifica cada ejercicio (1, 2, 3...) y sus apartados (a, b, c... o single si no hay).
+Tu tarea es extraer:
+1. Las respuestas correctas finales de cada ejercicio y apartado.
+2. La puntuación máxima de cada pregunta (suele aparecer entre paréntesis junto al enunciado: "1. (3 puntos)", "2. (2,5p)", etc.).
+3. Los criterios de evaluación que aparezcan al pie del examen (rúbricas, indicaciones de corrección, etc.).
+
+Instrucciones para las respuestas:
+- Identifica cada ejercicio (1, 2, 3...) y sus apartados (a, b, c... o "single" si no hay).
 - Para cada apartado extrae la respuesta final en texto matemático legible.
   Usa notación de texto: "x=2", "f'(x)=2x+1", "I=x^3/3+C", "lim=+inf", "[[1,2],[3,4]]".
 - Incluye solo el resultado final, no el desarrollo.
 - Si un apartado no tiene respuesta visible, omítelo.
 - NO inventes respuestas. Si no ves la solución claramente, omite ese apartado.
 
+Instrucciones para las puntuaciones:
+- Extrae el valor numérico de la puntuación total de cada pregunta (ej: "3 puntos" → 3.0).
+- Si una pregunta no tiene puntuación visible, usa null.
+- Incluye question_max_points en TODOS los apartados de la misma pregunta con el mismo valor.
+
 Devuelve JSON con esta estructura exacta:
 {
   "solutions": [
-    {"question_id": "1", "part_id": "a", "answer": "x=3", "notes": ""},
-    {"question_id": "1", "part_id": "b", "answer": "-3/2", "notes": ""},
-    {"question_id": "2", "part_id": "single", "answer": "12", "notes": ""}
+    {"question_id": "1", "part_id": "a", "answer": "x=3", "question_max_points": 3.0, "notes": ""},
+    {"question_id": "1", "part_id": "b", "answer": "-3/2", "question_max_points": 3.0, "notes": ""},
+    {"question_id": "2", "part_id": "single", "answer": "12", "question_max_points": 2.5, "notes": ""}
   ],
+  "evaluation_criteria": "Criterios de corrección: apartado a) 1 punto si...",
   "notes": ""
 }
 """

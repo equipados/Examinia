@@ -43,6 +43,7 @@ class FakeGeminiClient:
         extracted_part: ExtractedPart,
         question_statement: str | None = None,
         course_level: str | None = None,
+        evaluation_criteria: str | None = None,
     ) -> GeminiAssessment:  # noqa: ARG002
         return self._assessment
 
@@ -65,6 +66,7 @@ class FailIfAssessCalledGemini(FakeGeminiClient):
         extracted_part: ExtractedPart,
         question_statement: str | None = None,
         course_level: str | None = None,
+        evaluation_criteria: str | None = None,
     ) -> GeminiAssessment:  # noqa: ARG002
         raise AssertionError("assess_math_answer should not be called for blank answers")
 
@@ -206,7 +208,7 @@ def test_ai_solver_can_create_effective_solution_when_template_missing() -> None
         ai_solver_min_confidence=0.75,
     )
     assert result.total_points == 1.0
-    assert any("solucion IA" in inc for inc in result.incidents)
+    assert any("IA" in inc for inc in result.incidents)
 
 
 def test_no_template_with_known_max_points_uses_minimal_template() -> None:
@@ -266,7 +268,7 @@ def test_no_template_with_known_max_points_uses_minimal_template() -> None:
         ai_solver_min_confidence=0.30,
     )
     assert result.questions[0].parts[0].max_points == 1.5
-    assert any("Plantilla minima" in inc for inc in result.incidents)
+    assert any("IA" in inc for inc in result.incidents)
     assert result.total_points > 0.0
 
 

@@ -3,7 +3,8 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold text-gray-900">Informe de costes IA</h1>
+  <a href="/" class="text-sm text-blue-600 hover:text-blue-800">← Convocatorias</a>
+  <h1 class="text-2xl font-bold text-gray-900 mt-2">Informe de costes IA</h1>
   <p class="text-sm text-gray-500 mt-1">Tokens consumidos y coste estimado por convocatoria y operación.</p>
 </div>
 
@@ -109,6 +110,7 @@
               <th class="text-right pb-1 font-medium">Llamadas</th>
               <th class="text-right pb-1 font-medium">Tokens entrada</th>
               <th class="text-right pb-1 font-medium">Tokens salida</th>
+              <th class="text-right pb-1 font-medium">Thinking</th>
               <th class="text-right pb-1 font-medium">Total tokens</th>
               <th class="text-right pb-1 font-medium">Coste est.</th>
             </tr>
@@ -117,15 +119,18 @@
             {% for m in op.models %}
             <tr class="text-gray-600 border-b border-gray-50 last:border-0">
               <td class="py-1 pl-3 font-mono">
-                <span class="{% if m.provider == 'OpenAI' %}text-green-700{% else %}text-blue-700{% endif %}">{{ m.model }}</span>
+                <span class="{% if m.provider == 'OpenAI' %}text-green-700{% elif m.provider == 'DeepSeek' %}text-purple-700{% else %}text-blue-700{% endif %}">{{ m.model }}</span>
                 <span class="ml-1 text-xs px-1.5 py-0.5 rounded font-sans
-                  {% if m.provider == 'OpenAI' %}bg-green-50 text-green-600{% else %}bg-blue-50 text-blue-500{% endif %}">
+                  {% if m.provider == 'OpenAI' %}bg-green-50 text-green-600{% elif m.provider == 'DeepSeek' %}bg-purple-50 text-purple-600{% else %}bg-blue-50 text-blue-500{% endif %}">
                   {{ m.provider }}
                 </span>
               </td>
               <td class="py-1 text-right font-mono text-gray-500">{{ m.calls }}</td>
               <td class="py-1 text-right font-mono">{{ "{:,}".format(m.input) }}</td>
               <td class="py-1 text-right font-mono">{{ "{:,}".format(m.output) }}</td>
+              <td class="py-1 text-right font-mono {% if m.get('thinking', 0) > 0 %}text-amber-600 font-semibold{% else %}text-gray-400{% endif %}">
+                {% if m.get('thinking', 0) > 0 %}{{ "{:,}".format(m.thinking) }}{% else %}—{% endif %}
+              </td>
               <td class="py-1 text-right font-mono font-semibold text-gray-700">{{ "{:,}".format(m.total) }}</td>
               <td class="py-1 text-right font-mono text-emerald-700">{{ "%.5f"|format(m.cost) }} €</td>
             </tr>

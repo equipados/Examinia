@@ -30,6 +30,19 @@ def _make_solver(solver_provider: str | None, cfg):
         }
         model = model_map.get(provider, "gpt-4o")
         return OpenAISolver(model=model, max_retries=cfg.max_retries)
+    elif provider.startswith("deepseek"):
+        from openai_solver import OpenAISolver
+        model_map = {
+            "deepseek-v3": "deepseek-chat",
+            "deepseek-r1": "deepseek-reasoner",
+        }
+        model = model_map.get(provider, "deepseek-chat")
+        return OpenAISolver(
+            model=model,
+            max_retries=cfg.max_retries,
+            api_key_env="DEEPSEEK_API_KEY",
+            base_url="https://api.deepseek.com",
+        )
     else:
         from gemini_client import GeminiClient
         solver_model = _SOLVER_GEMINI_MODELS.get(provider, cfg.gemini_solver_model)
@@ -52,17 +65,46 @@ def _apply_session_max_points(submission, session_max: float) -> None:
 
     current_total = sum(p.max_points or 0.0 for p in all_parts)
 
+    # Si hay max_points a nivel de pregunta (extraídos del enunciado) pero las partes tienen 0,
+    # distribuir los puntos de pregunta entre sus partes antes de decidir si hacer reparto equitativo
+    question_total = sum(q.max_points or 0.0 for q in submission.questions)
+    if current_total == 0.0 and question_total > 0.01:
+        for q in submission.questions:
+            if q.max_points and q.max_points > 0:
+                n = len(q.parts)
+                part_running = 0.0
+                for pi, p in enumerate(q.parts):
+                    if pi == n - 1:
+                        p.max_points = round_points(q.max_points - part_running)
+                    else:
+                        share = round_points(q.max_points / n)
+                        p.max_points = share
+                        part_running += share
+        current_total = sum(p.max_points or 0.0 for p in all_parts)
+
     zero_parts = [p for p in all_parts if (p.max_points or 0.0) == 0.0]
 
     if current_total == 0.0 or zero_parts:
         # Sin puntuación en alguna(s) parte(s): reparto equitativo entre todas
         n_questions = len(submission.questions)
         pts_per_question = round_points(session_max / n_questions)
-        for q in submission.questions:
+        running_total = 0.0
+        for qi, q in enumerate(submission.questions):
             n_parts = len(q.parts)
-            pts_per_part = round_points(pts_per_question / n_parts)
-            for p in q.parts:
-                p.max_points = pts_per_part
+            # Última pregunta recibe el resto para evitar errores de redondeo acumulados
+            if qi == n_questions - 1:
+                q_pts = round_points(session_max - running_total)
+            else:
+                q_pts = pts_per_question
+            running_total += q_pts
+            pts_per_part = round_points(q_pts / n_parts)
+            part_running = 0.0
+            for pi, p in enumerate(q.parts):
+                if pi == n_parts - 1:
+                    p.max_points = round_points(q_pts - part_running)
+                else:
+                    p.max_points = pts_per_part
+                    part_running += pts_per_part
             q.max_points = round_points(sum(p.max_points for p in q.parts))
     elif abs(current_total - session_max) > 0.01:
         # Puntuación extraída pero con escala diferente: escalar proporcionalmente
@@ -95,6 +137,7 @@ def _save_token_usage(db, gemini_client, operation: str, session_id: int | None,
                 model=model_name,
                 input_tokens=counts.get("input", 0),
                 output_tokens=counts.get("output", 0),
+                thinking_tokens=counts.get("thinking", 0),
                 total_tokens=counts.get("total", 0),
                 api_calls=counts.get("calls", 0),
             ))
@@ -184,8 +227,10 @@ class _CachingGeminiWrapper:
             logger.debug(f"      [{question_id}.{part_id}] Usando solución IA cacheada (sin llamada API)")
             return self._cache[key]
 
+        # Usar _solver independiente si está configurado (puede ser OpenAI o Gemini)
+        _active_solver = getattr(self, "_solver", None) or self._client
         logger.debug(f"      [{question_id}.{part_id}] Resolviendo con IA (primera vez en esta convocatoria)...")
-        result = self._client.solve_math_question(
+        result = _active_solver.solve_math_question(
             question_statement=question_statement,
             question_id=question_id,
             part_id=part_id,
@@ -216,11 +261,17 @@ class _CachingGeminiWrapper:
             self._db.add(row)
             self._db.commit()
 
-    # Delegate all other methods to the real client
+    # Delegate assess/feedback to solver if it supports them, else fall back to Gemini
     def assess_math_answer(self, *args, **kwargs):
+        _active_solver = getattr(self, "_solver", None)
+        if _active_solver is not None and _active_solver is not self._client and hasattr(_active_solver, "assess_math_answer"):
+            return _active_solver.assess_math_answer(*args, **kwargs)
         return self._client.assess_math_answer(*args, **kwargs)
 
     def generate_feedback_explanation(self, *args, **kwargs):
+        _active_solver = getattr(self, "_solver", None)
+        if _active_solver is not None and _active_solver is not self._client and hasattr(_active_solver, "generate_feedback_explanation"):
+            return _active_solver.generate_feedback_explanation(*args, **kwargs)
         return self._client.generate_feedback_explanation(*args, **kwargs)
 
     def extract_exam_questions(self, *args, **kwargs):
@@ -333,28 +384,78 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
         exam_submission = normalize_submission_structure(exam_submission)
         total_parts = sum(len(q.parts) for q in exam_submission.questions)
         _step(f"Alumno: {exam_submission.student_name or '?'} · Modelo: {exam_submission.exam_model or '?'} · {len(exam_submission.questions)} ejercicio(s), {total_parts} apartado(s)")
+        # Log puntos extraídos del PDF del alumno (diagnóstico)
+        pts_debug = " | ".join(
+            f"Ej{q.question_id}={q.max_points}p ({len(q.parts)} apt)"
+            for q in exam_submission.questions
+        )
+        _step(f"Puntos extraídos del PDF: {pts_debug or 'ninguno'}")
 
-        # Aplicar puntuación máxima de la convocatoria si está configurada
-        from app.db_models import ExamSession
-        session_obj = db.get(ExamSession, submission.session_id)
-        if session_obj and session_obj.max_total_points:
-            _apply_session_max_points(exam_submission, session_obj.max_total_points)
-            _step(f"Puntuaciones ajustadas a {session_obj.max_total_points} pts (configuración de convocatoria).")
-
-        # 5. Grade (uses caching wrapper for solver calls)
-        _step(f"Corrigiendo respuestas con {cfg.gemini_model} (assess) + {cfg.gemini_solver_model} (solver)...")
-        # Construir SolutionBank desde soluciones validadas de la convocatoria
-        from app.db_models import SessionSolution as _SS
+        # Cargar soluciones validadas de la convocatoria (necesarias para puntos y SolutionBank)
+        from app.db_models import ExamSession, SessionSolution as _SS
         from models import SolutionTemplate as _ST
+        session_obj = db.get(ExamSession, submission.session_id)
         sess_sols = db.query(_SS).filter(
             _SS.session_id == submission.session_id,
             _SS.status.in_(["validated", "manual"]),
             _SS.final_answer.isnot(None),
         ).all()
+
+        # Aplicar puntuaciones: prioridad 1=PDF profesor, 2=PDF alumno, 3=reparto equitativo
+        from utils import round_points as _rp
+        sol_pts = {(s.question_id, s.part_id): s.max_points for s in sess_sols if s.max_points}
+
+        if sol_pts:
+            # Prioridad 1: puntos extraídos del PDF del profesor
+            for q in exam_submission.questions:
+                for p in q.parts:
+                    key = (q.question_id, p.part_id)
+                    if key in sol_pts:
+                        p.max_points = sol_pts[key]
+                q.max_points = _rp(sum(p.max_points or 0.0 for p in q.parts))
+            total_extracted = sum(q.max_points or 0.0 for q in exam_submission.questions)
+            _step(f"Puntuaciones del PDF del profesor aplicadas: {total_extracted} pts en total.")
+            # Eliminar incidencias de reparto equitativo: ya no aplican al usar puntos del profesor
+            exam_submission.incidents = [
+                inc for inc in exam_submission.incidents
+                if not inc.startswith("Reparto equitativo")
+            ]
+        else:
+            # Prioridad 2: puntos ya extraídos del PDF del alumno (por el parser)
+            current_parts_total = sum(p.max_points or 0.0 for q in exam_submission.questions for p in q.parts)
+            if current_parts_total > 0.01:
+                _step(f"Puntuaciones extraídas del PDF del alumno: {current_parts_total} pts.")
+            elif session_obj and session_obj.max_total_points:
+                # Prioridad 3: reparto equitativo si no hay puntos en ningún lado
+                _apply_session_max_points(exam_submission, session_obj.max_total_points)
+                _step(f"Puntuaciones repartidas equitativamente a {session_obj.max_total_points} pts.")
+
+        # Escalar si max_total_points difiere del total actual
+        if session_obj and session_obj.max_total_points:
+            current = sum(q.max_points or 0.0 for q in exam_submission.questions)
+            if current > 0.01 and abs(current - session_obj.max_total_points) > 0.05:
+                _apply_session_max_points(exam_submission, session_obj.max_total_points)
+                _step(f"Puntuaciones escaladas de {current:.2f} a {session_obj.max_total_points} pts.")
+
+        # 5. Grade (uses caching wrapper for solver calls)
+        # Usar el solver configurado en la convocatoria (Gemini o OpenAI)
+        _solver_provider = session_obj.solver_provider if session_obj else None
+        _solver = _make_solver(_solver_provider, cfg)
+        gemini._solver = _solver  # solver independiente (puede ser OpenAI o Gemini)
+        _solver_label = getattr(_solver, "model", _solver_provider or cfg.gemini_solver_model)
+        _step(f"Corrigiendo respuestas con {cfg.gemini_model} (assess) + {_solver_label} (solver)...")
+
         bank = SolutionBank([
-            _ST(exercise=s.question_id, part=s.part_id, expected_final_answer=s.final_answer, max_points=0.0)
+            _ST(
+                exercise=s.question_id,
+                part=s.part_id,
+                expected_final_answer=s.final_answer,
+                max_points=s.max_points if s.max_points else 0.0,
+            )
             for s in sess_sols
         ])
+        # Criterios de evaluación (del PDF del profesor, para pasar al assessor)
+        _eval_criteria = next((s.evaluation_criteria for s in sess_sols if s.evaluation_criteria), None)
         reports_dir = Path(upload_dir) / "informes"
         reports_dir.mkdir(parents=True, exist_ok=True)
 
@@ -366,6 +467,7 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
             strict_mode=cfg.strict_mode,
             allow_ai_solver=cfg.enable_ai_solver,
             ai_solver_min_confidence=cfg.ai_solver_min_confidence,
+            evaluation_criteria=_eval_criteria,
         )
 
         # 6. Write report
@@ -409,8 +511,12 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
         submission.report_path = result.report_path
         submission.status = "done"
         submission.processed_at = datetime.now(timezone.utc)
+        _link_student(db, submission)
         db.commit()
         _save_token_usage(db, real_gemini, "grade_submission", submission.session_id, submission_id)
+        # Guardar también tokens del solver externo (OpenAI/DeepSeek) si los usó
+        if _solver is not real_gemini and hasattr(_solver, "reset_usage"):
+            _save_token_usage(db, _solver, "grade_submission_solver", submission.session_id, submission_id)
         _step(f"✓ Completado: {result.student_name or '?'} — {result.total_points:.2f}/{result.max_total_points:.2f} pts")
 
         # Actualizar snapshot de historial tras cada corrección
@@ -743,6 +849,29 @@ def _run_extract_teacher_solutions(
         total_parts = len(extraction.solutions)
         _step(f"Respuestas leídas: {total_parts} apartado(s) encontrados. Guardando...")
 
+        # Prorratear puntos por apartado: agrupar por question_id para saber cuántos apartados tiene cada pregunta
+        from collections import defaultdict
+        parts_per_question: dict[str, list] = defaultdict(list)
+        for item in extraction.solutions:
+            parts_per_question[item.question_id].append(item)
+
+        # Calcular max_points por apartado (question_max_points / n_parts de esa pregunta)
+        part_points: dict[tuple[str, str], float | None] = {}
+        for qid, items in parts_per_question.items():
+            q_pts = next((i.question_max_points for i in items if i.question_max_points is not None), None)
+            if q_pts is not None:
+                pts_each = round(q_pts / len(items), 4)
+                for i in items:
+                    part_points[(qid, i.part_id)] = pts_each
+            else:
+                for i in items:
+                    part_points[(qid, i.part_id)] = None
+
+        # Criterios de evaluación (comunes a todos los apartados de la convocatoria)
+        criteria = extraction.evaluation_criteria or None
+        if criteria:
+            _step(f"Criterios de evaluación extraídos ({len(criteria)} caracteres).")
+
         # Borrar soluciones anteriores
         db.query(SessionSolution).filter(SessionSolution.session_id == session_id).delete()
         db.commit()
@@ -752,17 +881,26 @@ def _run_extract_teacher_solutions(
         created = 0
         for item in extraction.solutions:
             has_answer = bool(item.answer)
+            pts = part_points.get((item.question_id, item.part_id))
             row = SessionSolution(
                 session_id=session_id,
                 question_id=item.question_id,
                 part_id=item.part_id,
                 final_answer=item.answer or None,
+                max_points=pts,
+                evaluation_criteria=criteria,
                 status="validated" if has_answer else "ai_failed",
                 validated_at=now if has_answer else None,
             )
             db.add(row)
             created += 1
         db.commit()
+
+        if criteria:
+            pts_info = {qid: items[0].question_max_points for qid, items in parts_per_question.items() if items[0].question_max_points is not None}
+            if pts_info:
+                pts_str = ", ".join(f"Ej.{k}={v}p" for k, v in sorted(pts_info.items()))
+                _step(f"Puntuaciones extraídas del examen: {pts_str}")
 
         _save_token_usage(db, gemini, "extract_teacher_pdf", session_id, None)
         _step(f"✓ Listo: {created} apartado(s) extraídos del PDF del profesor. Revisa y valida las respuestas.")
@@ -776,6 +914,34 @@ def _run_extract_teacher_solutions(
             pass
         _teacher_sessions.discard(session_id)
         db.close()
+
+
+def _link_student(db, submission) -> None:
+    """Finds or creates a Student row and links submission.student_id to it."""
+    from app.db_models import Student
+    from utils import normalize_identifier
+    name = submission.student_name
+    if not name:
+        return
+    norm = normalize_identifier(name)
+    if not norm:
+        return
+    course = submission.course_level
+    candidates = db.query(Student).filter(Student.normalized_name == norm).all()
+    if candidates:
+        match = next((c for c in candidates if c.course_level == course), candidates[0])
+        submission.student_id = match.id
+        if course and not match.course_level:
+            match.course_level = course
+    else:
+        s = Student(
+            display_name=name.strip().title(),
+            normalized_name=norm,
+            course_level=course,
+        )
+        db.add(s)
+        db.flush()
+        submission.student_id = s.id
 
 
 def recover_pending(db_path: str, upload_dir: str, config_overrides: dict | None = None) -> None:

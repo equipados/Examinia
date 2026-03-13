@@ -216,6 +216,7 @@ class TeacherSolutionItem(BaseModel):
     question_id: str
     part_id: str
     answer: str
+    question_max_points: float | None = None  # puntos totales de la pregunta, ej. 3.0 para "(3p)"
     notes: str = ""
 
     @field_validator("question_id", mode="before")
@@ -233,6 +234,7 @@ class TeacherSolutionsExtraction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     solutions: list[TeacherSolutionItem] = Field(default_factory=list)
+    evaluation_criteria: str = ""  # criterios de evaluación del pie del examen
     notes: str = ""
 
 

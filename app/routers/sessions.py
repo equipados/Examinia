@@ -64,7 +64,7 @@ def create_session(
     return RedirectResponse(url=f"/sessions/{session.id}/upload", status_code=status.HTTP_302_FOUND)
 
 
-_VALID_SOLVER_PROVIDERS = {"gemini-flash", "gemini-pro", "openai-gpt4o", "openai-o4mini"}
+_VALID_SOLVER_PROVIDERS = {"gemini-flash", "gemini-pro", "openai-gpt4o", "openai-o4mini", "deepseek-v3", "deepseek-r1"}
 
 
 @router.post("/{session_id}/set-solver")
@@ -217,55 +217,62 @@ def download_excel(
 ) -> StreamingResponse:
     import io
     import json
+    import traceback
     from pathlib import Path
     from excel_export import export_results_to_excel
     from models import ExamGradeResult, QuestionGrade, PartGrade
 
-    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
-    if session is None:
-        return HTMLResponse("Convocatoria no encontrada", status_code=404)
+    try:
+        session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+        if session is None:
+            return HTMLResponse("Convocatoria no encontrada", status_code=404)
 
-    results: list[ExamGradeResult] = []
-    for sub in session.submissions:
-        if sub.status != "done":
-            continue
-        questions = []
-        for qr in sub.question_results:
-            parts = []
-            for pr in qr.part_results:
-                parts.append(PartGrade(
-                    part_id=pr.part_id,
-                    column_id=pr.column_id,
-                    awarded_points=pr.awarded_points or 0.0,
-                    max_points=pr.max_points or 0.0,
-                    status=pr.status or "incorrecto",
-                    explanation=pr.explanation or "",
-                    detected_answer=pr.detected_answer,
-                    incidents=json.loads(pr.incidents) if pr.incidents else [],
+        results: list[ExamGradeResult] = []
+        for sub in session.submissions:
+            if sub.status != "done":
+                continue
+            questions = []
+            for qr in sub.question_results:
+                parts = []
+                for pr in qr.part_results:
+                    parts.append(PartGrade(
+                        question_id=qr.question_id,
+                        part_id=pr.part_id,
+                        column_id=pr.column_id,
+                        awarded_points=pr.awarded_points or 0.0,
+                        max_points=pr.max_points or 0.0,
+                        status=pr.status or "incorrecto",
+                        explanation=pr.explanation or "",
+                        detected_answer=pr.detected_answer,
+                        incidents=json.loads(pr.incidents) if pr.incidents else [],
+                    ))
+                questions.append(QuestionGrade(
+                    question_id=qr.question_id,
+                    max_points=qr.max_points or 0.0,
+                    awarded_points=sum(p.awarded_points for p in parts),
+                    parts=parts,
                 ))
-            questions.append(QuestionGrade(
-                question_id=qr.question_id,
-                max_points=qr.max_points or 0.0,
-                parts=parts,
+            results.append(ExamGradeResult(
+                exam_id=f"session_{session_id}::sub_{sub.id}",
+                source_file=sub.source_filename,
+                student_name=sub.student_name or "Desconocido",
+                exam_model=sub.exam_model,
+                course_level=sub.course_level,
+                pages=[],
+                total_points=sub.total_points or 0.0,
+                max_total_points=sub.max_total_points or 0.0,
+                questions=questions,
+                incidents=json.loads(sub.incidents) if sub.incidents else [],
+                report_path=sub.report_path,
             ))
-        results.append(ExamGradeResult(
-            exam_id=f"session_{session_id}::sub_{sub.id}",
-            source_file=sub.source_filename,
-            student_name=sub.student_name or "Desconocido",
-            exam_model=sub.exam_model,
-            course_level=sub.course_level,
-            pages=[],
-            total_points=sub.total_points or 0.0,
-            max_total_points=sub.max_total_points or 0.0,
-            questions=questions,
-            incidents=json.loads(sub.incidents) if sub.incidents else [],
-            report_path=sub.report_path,
-        ))
 
-    tmp = Path("salidas") / f"session_{session_id}_resultados.xlsx"
-    tmp.parent.mkdir(parents=True, exist_ok=True)
-    export_results_to_excel(results, tmp)
-    content = tmp.read_bytes()
+        tmp = Path("salidas") / f"session_{session_id}_resultados.xlsx"
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        export_results_to_excel(results, tmp, session_name=session.name)
+        content = tmp.read_bytes()
+    except Exception:
+        tb = traceback.format_exc()
+        return HTMLResponse(f"<pre>Error generando Excel:\n\n{tb}</pre>", status_code=500)
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -280,13 +287,14 @@ _USD_TO_EUR = 0.92
 
 
 def _build_token_summary(rows) -> dict:
-    """Agrupa filas de TokenUsage en un resumen por operación y totales."""
+    """Agrupa filas de TokenUsage en un resumen por (operación, modelo) y totales."""
     by_op: dict[str, dict] = {}
     grand = {"input": 0, "output": 0, "total": 0, "calls": 0, "cost_usd": 0.0}
     for r in rows:
-        key = r.operation
+        key = f"{r.operation}||{r.model}"
         entry = by_op.setdefault(key, {
-            "label": _OP_LABELS.get(key, key),
+            "label": _OP_LABELS.get(r.operation, r.operation),
+            "model": r.model,
             "input": 0, "output": 0, "total": 0, "calls": 0, "cost_usd": 0.0,
         })
         entry["input"] += r.input_tokens
@@ -301,6 +309,22 @@ def _build_token_summary(rows) -> dict:
         grand["calls"] += r.api_calls
         grand["cost_usd"] += cost
     return {"by_op": by_op, "grand": grand}
+
+
+def _natural_sort_tuple(s: str) -> list[int | str]:
+    """Divide un string en partes texto/número para orden natural: 'ejercicio2' → ['ejercicio', 2]."""
+    import re
+    parts: list[int | str] = []
+    for tok in re.split(r'(\d+)', s):
+        if tok.isdigit():
+            parts.append(int(tok))
+        else:
+            parts.append(tok.lower())
+    return parts
+
+
+def _natural_sol_key(sol) -> tuple[list[int | str], list[int | str]]:
+    return (_natural_sort_tuple(sol.question_id), _natural_sort_tuple(sol.part_id))
 
 
 def _col_sort_key(col: str) -> tuple[int, str]:
@@ -330,9 +354,9 @@ def solutions_page(
     solutions = (
         db.query(SessionSolution)
         .filter(SessionSolution.session_id == session_id)
-        .order_by(SessionSolution.question_id, SessionSolution.part_id)
         .all()
     )
+    solutions.sort(key=_natural_sol_key)
 
     has_pending_pdf = db.query(Submission).filter(
         Submission.session_id == session_id,
@@ -523,12 +547,14 @@ def grading_poll(
 def validate_solution(
     session_id: int,
     sol_id: int,
+    request: Request,
     final_answer: str = Form(...),
     teacher_notes: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> RedirectResponse:
+):
     from datetime import datetime, timezone
+    from fastapi.responses import JSONResponse
     sol = db.query(SessionSolution).filter(
         SessionSolution.id == sol_id,
         SessionSolution.session_id == session_id,
@@ -539,6 +565,22 @@ def validate_solution(
         sol.status = "validated"
         sol.validated_at = datetime.now(timezone.utc)
         db.commit()
+
+    # Si es AJAX, devolver JSON en vez de redirect
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        # Recalcular contadores
+        all_sols = db.query(SessionSolution).filter(SessionSolution.session_id == session_id).all()
+        validated = sum(1 for s in all_sols if s.status in ("validated", "manual"))
+        total = len(all_sols)
+        ai_failed = sum(1 for s in all_sols if s.status == "ai_failed")
+        return JSONResponse({
+            "ok": True,
+            "sol_id": sol_id,
+            "final_answer": sol.final_answer if sol else "",
+            "validated": validated,
+            "total": total,
+            "ai_failed": ai_failed,
+        })
     return RedirectResponse(url=f"/sessions/{session_id}/solutions", status_code=status.HTTP_302_FOUND)
 
 

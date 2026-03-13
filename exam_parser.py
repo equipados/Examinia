@@ -189,8 +189,17 @@ def _apply_points_distribution(question: ExtractedQuestion, incidents: list[str]
             incidents.append(f"No se pudo determinar la puntuacion maxima de ejercicio {question.question_id}.")
         return
 
-    known_points = [part.max_points for part in question.parts if part.max_points is not None]
-    missing_parts = [part for part in question.parts if part.max_points is None]
+    # Tratar 0.0 como "no conocido" cuando la pregunta tiene puntuación total positiva,
+    # ya que 0.0 es el valor por defecto del schema JSON, no un valor real.
+    q_total = question.max_points or 0.0
+    known_points = [
+        part.max_points for part in question.parts
+        if part.max_points is not None and (part.max_points > 0 or q_total == 0)
+    ]
+    missing_parts = [
+        part for part in question.parts
+        if part.max_points is None or (part.max_points == 0.0 and q_total > 0)
+    ]
 
     if question.max_points is None and known_points:
         question.max_points = round_points(sum(known_points))
@@ -199,9 +208,15 @@ def _apply_points_distribution(question: ExtractedQuestion, incidents: list[str]
         total_known = sum(known_points)
         if missing_parts:
             if not known_points:
-                share = round_points(question.max_points / len(question.parts))
-                for part in question.parts:
-                    part.max_points = share
+                n = len(question.parts)
+                share = round_points(question.max_points / n)
+                running = 0.0
+                for pi, part in enumerate(question.parts):
+                    if pi == n - 1:
+                        part.max_points = round_points(question.max_points - running)
+                    else:
+                        part.max_points = share
+                        running += share
                 incidents.append(
                     (
                         f"Reparto equitativo aplicado en ejercicio {question.question_id}: "

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.3.2"
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -58,11 +58,13 @@ _set_app_version(APP_VERSION)
 
 # Register routers
 from app.routers import auth, dashboard, sessions, submissions as sub_module, reports
+from app.routers.students import router as students_router
 
 app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(sessions.router)
 app.include_router(reports.router)
+app.include_router(students_router)
 # Upload routes live under /submissions prefix but need session_id param
 app.add_api_route(
     "/sessions/{session_id}/upload",

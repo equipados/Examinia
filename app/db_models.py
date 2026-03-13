@@ -57,7 +57,10 @@ class Submission(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
+    student_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("students.id"), nullable=True)
+
     session: Mapped[ExamSession] = relationship("ExamSession", back_populates="submissions")
+    student: Mapped["Student | None"] = relationship("Student", back_populates="submissions")
     question_results: Mapped[list[QuestionResult]] = relationship("QuestionResult", back_populates="submission", cascade="all, delete-orphan")
 
 
@@ -102,6 +105,7 @@ class TokenUsage(Base):
     model: Mapped[str] = mapped_column(Text, nullable=False)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    thinking_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     total_tokens: Mapped[int] = mapped_column(Integer, default=0)
     api_calls: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -127,6 +131,19 @@ class SessionHistory(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime)    # null = convocatoria sigue activa
 
 
+class Student(Base):
+    __tablename__ = "students"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
+    course_level: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    submissions: Mapped[list["Submission"]] = relationship("Submission", back_populates="student")
+
+
 class SessionSolution(Base):
     """Soluciones por convocatoria: se calculan una vez, el profesor las valida, y se reutilizan para corregir."""
     __tablename__ = "session_solutions"
@@ -139,6 +156,8 @@ class SessionSolution(Base):
     part_statement: Mapped[str | None] = mapped_column(Text)       # enunciado del apartado
     solved_json: Mapped[str | None] = mapped_column(Text)          # GeminiSolvedExercise JSON (si la IA pudo)
     final_answer: Mapped[str | None] = mapped_column(Text)         # respuesta validada/corregida por el profesor
+    max_points: Mapped[float | None] = mapped_column(Float)        # puntos de este apartado (prorrateados de la pregunta)
+    evaluation_criteria: Mapped[str | None] = mapped_column(Text)  # criterios de evaluación del examen
     solution_image_path: Mapped[str | None] = mapped_column(Text)  # imagen subida por el profesor
     teacher_notes: Mapped[str | None] = mapped_column(Text)
     # ai_pending | ai_solved | ai_failed | validated | manual
