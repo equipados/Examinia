@@ -36,7 +36,8 @@
         Editar nombre
       </summary>
       <form method="post" action="/students/{{ student.id }}/rename"
-            class="mt-3 flex items-center gap-2">
+            class="mt-3 flex items-center gap-2"
+            onsubmit="return confirmRename(this)">
         <input type="text" name="display_name" value="{{ student.display_name }}"
                required
                class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-blue-400">
@@ -45,7 +46,16 @@
           Guardar
         </button>
       </form>
+      <p class="text-xs text-gray-400 mt-1">Si el nuevo nombre coincide con otro alumno, se fusionarán automáticamente.</p>
     </details>
+<script>
+function confirmRename(form) {
+  var newName = form.display_name.value.trim();
+  var oldName = "{{ student.display_name }}";
+  if (newName === oldName) return true;
+  return confirm('¿Cambiar el nombre de "' + oldName + '" a "' + newName + '"?\n\nSi ya existe un alumno con ese nombre, se fusionarán y sus exámenes se unificarán.');
+}
+</script>
   </div>
 </div>
 

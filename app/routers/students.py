@@ -179,8 +179,35 @@ def rename_student(
     current_user: User = Depends(get_current_user),
 ) -> RedirectResponse:
     student = db.query(Student).filter(Student.id == student_id).first()
-    if student:
-        student.display_name = display_name.strip()
-        student.normalized_name = normalize_identifier(display_name.strip())
+    if not student:
+        return RedirectResponse(url="/students", status_code=status.HTTP_302_FOUND)
+
+    new_name = display_name.strip()
+    new_norm = normalize_identifier(new_name)
+
+    # Buscar si ya existe otro alumno con el mismo nombre normalizado
+    existing = (
+        db.query(Student)
+        .filter(Student.normalized_name == new_norm, Student.id != student_id)
+        .first()
+    )
+
+    if existing:
+        # Merge: mover todas las submissions del alumno actual al existente
+        db.query(Submission).filter(Submission.student_id == student_id).update(
+            {Submission.student_id: existing.id}, synchronize_session="fetch"
+        )
+        # Conservar notas si el original no tenía
+        if student.notes and not existing.notes:
+            existing.notes = student.notes
+        if student.course_level and not existing.course_level:
+            existing.course_level = student.course_level
+        db.delete(student)
         db.commit()
+        return RedirectResponse(url=f"/students/{existing.id}", status_code=status.HTTP_302_FOUND)
+
+    # Sin duplicado: simplemente renombrar
+    student.display_name = new_name
+    student.normalized_name = new_norm
+    db.commit()
     return RedirectResponse(url=f"/students/{student_id}", status_code=status.HTTP_302_FOUND)

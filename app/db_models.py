@@ -14,7 +14,14 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     hashed_pw: Mapped[str] = mapped_column(Text, nullable=False)
+    full_name: Mapped[str | None] = mapped_column(Text)          # nombre y apellidos
+    email: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    @property
+    def display_name(self) -> str:
+        """Nombre para mostrar: full_name si existe, si no username."""
+        return self.full_name or self.username
 
 
 class ExamSession(Base):
@@ -33,6 +40,9 @@ class ExamSession(Base):
     max_total_points: Mapped[float | None] = mapped_column(Float)     # puntuación máxima forzada (ej: 10)
     current_step: Mapped[str | None] = mapped_column(Text)            # último paso (resumen)
     session_log: Mapped[str | None] = mapped_column(Text)             # log acumulativo JSON [{t, msg}]
+    grading_instructions: Mapped[str | None] = mapped_column(Text)   # instrucciones del profesor para la IA
+    send_email_on_completion: Mapped[int] = mapped_column(Integer, default=0)  # 1 = enviar email al terminar
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"))
 
     submissions: Mapped[list[Submission]] = relationship("Submission", back_populates="session", cascade="all, delete-orphan")
 

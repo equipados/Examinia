@@ -47,6 +47,42 @@ def init_db(db_path: Path = Path("corrector.db")) -> None:
         except Exception:
             pass  # Column already exists
 
+    # Migration: add grading_instructions to exam_sessions
+    with _engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE exam_sessions ADD COLUMN grading_instructions TEXT"))
+            conn.commit()
+        except OperationalError:
+            pass
+
+    # Migration: add send_email_on_completion and created_by_user_id to exam_sessions
+    with _engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE exam_sessions ADD COLUMN send_email_on_completion INTEGER DEFAULT 0"))
+            conn.commit()
+        except OperationalError:
+            pass
+    with _engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE exam_sessions ADD COLUMN created_by_user_id INTEGER REFERENCES users(id)"))
+            conn.commit()
+        except OperationalError:
+            pass
+
+    # Migration: add email and full_name to users
+    with _engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN email TEXT"))
+            conn.commit()
+        except OperationalError:
+            pass
+    with _engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN full_name TEXT"))
+            conn.commit()
+        except OperationalError:
+            pass
+
     _backfill_students(_engine)
 
 

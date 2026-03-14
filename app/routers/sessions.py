@@ -41,6 +41,8 @@ def create_session(
     notes: str = Form(""),
     max_total_points: str = Form(""),
     solver_provider: str = Form("gemini-pro"),
+    grading_instructions: str = Form(""),
+    send_email_on_completion: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RedirectResponse:
@@ -57,6 +59,9 @@ def create_session(
         notes=notes or None,
         max_total_points=mtp,
         solver_provider=solver_provider if solver_provider in _VALID_SOLVER_PROVIDERS else "gemini-pro",
+        grading_instructions=grading_instructions.strip() or None,
+        send_email_on_completion=1 if send_email_on_completion else 0,
+        created_by_user_id=current_user.id,
     )
     db.add(session)
     db.commit()
@@ -96,6 +101,22 @@ def set_max_points(
             pass
         db.commit()
     return RedirectResponse(url=f"/sessions/{session_id}", status_code=status.HTTP_302_FOUND)
+
+
+@router.post("/{session_id}/set-grading-instructions")
+def set_grading_instructions(
+    session_id: int,
+    grading_instructions: str = Form(""),
+    redirect_to: str = Form(""),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RedirectResponse:
+    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+    if session:
+        session.grading_instructions = grading_instructions.strip() or None
+        db.commit()
+    redirect_url = redirect_to or f"/sessions/{session_id}"
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/{session_id}", response_class=HTMLResponse)

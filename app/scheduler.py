@@ -454,8 +454,15 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
             )
             for s in sess_sols
         ])
-        # Criterios de evaluación (del PDF del profesor, para pasar al assessor)
+        # Criterios de evaluación: instrucciones del profesor + criterios extraídos del PDF
         _eval_criteria = next((s.evaluation_criteria for s in sess_sols if s.evaluation_criteria), None)
+        _grading_instr = session_obj.grading_instructions if session_obj else None
+        if _grading_instr:
+            parts = []
+            parts.append(f"INSTRUCCIONES DEL PROFESOR:\n{_grading_instr}")
+            if _eval_criteria:
+                parts.append(f"CRITERIOS EXTRAÍDOS DEL EXAMEN:\n{_eval_criteria}")
+            _eval_criteria = "\n\n".join(parts)
         reports_dir = Path(upload_dir) / "informes"
         reports_dir.mkdir(parents=True, exist_ok=True)
 
@@ -528,6 +535,35 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
                 _snapshot_session(sess, db)
         except Exception:
             pass
+
+        # Comprobar si toda la convocatoria ha terminado → enviar email
+        try:
+            from app.db_models import ExamSession as _ES2, User as _U
+            sess2 = db.get(_ES2, submission.session_id)
+            if sess2 and sess2.send_email_on_completion and sess2.created_by_user_id:
+                remaining = db.query(Submission).filter(
+                    Submission.session_id == submission.session_id,
+                    Submission.status.notin_(["done", "error"]),
+                ).count()
+                if remaining == 0:
+                    user = db.query(_U).filter(_U.id == sess2.created_by_user_id).first()
+                    if user and user.email:
+                        all_subs = db.query(Submission).filter(
+                            Submission.session_id == submission.session_id,
+                        ).all()
+                        results = [
+                            {
+                                "student_name": s.student_name or s.source_filename,
+                                "total": s.total_points or 0,
+                                "max": s.max_total_points or 0,
+                                "status": s.status,
+                            }
+                            for s in all_subs
+                        ]
+                        from app.email_service import send_session_completion_email
+                        send_session_completion_email(user.email, sess2.name, results, teacher_name=user.display_name)
+        except Exception:
+            pass  # Email failure must never affect grading
 
     except Exception:
         tb = traceback.format_exc()
