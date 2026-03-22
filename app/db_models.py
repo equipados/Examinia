@@ -100,6 +100,8 @@ class PartResult(Base):
     explanation: Mapped[str | None] = mapped_column(Text)
     detected_answer: Mapped[str | None] = mapped_column(Text)
     incidents: Mapped[str | None] = mapped_column(Text)  # JSON list
+    ai_awarded_points: Mapped[float | None] = mapped_column(Float)  # puntos originales de la IA (inmutable)
+    ai_explanation: Mapped[str | None] = mapped_column(Text)        # explicación original de la IA (inmutable)
 
     question: Mapped[QuestionResult] = relationship("QuestionResult", back_populates="part_results")
 
@@ -154,6 +156,30 @@ class Student(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     submissions: Mapped[list["Submission"]] = relationship("Submission", back_populates="student")
+
+
+class CorrectionExample(Base):
+    """Ejemplos de correcciones del profesor vs IA — se inyectan como few-shot en futuros assessments."""
+    __tablename__ = "correction_examples"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(Integer, ForeignKey("exam_sessions.id"), nullable=False)
+    question_id: Mapped[str] = mapped_column(Text, nullable=False)
+    part_id: Mapped[str] = mapped_column(Text, nullable=False)
+    # Lo que dijo la IA
+    ai_awarded_points: Mapped[float | None] = mapped_column(Float)
+    ai_explanation: Mapped[str | None] = mapped_column(Text)
+    ai_classification: Mapped[str | None] = mapped_column(Text)
+    # Lo que corrigió el profesor
+    teacher_awarded_points: Mapped[float] = mapped_column(Float, nullable=False)
+    teacher_explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    max_points: Mapped[float | None] = mapped_column(Float)
+    # Contexto para matching cross-session
+    subject: Mapped[str | None] = mapped_column(Text)
+    course_level: Mapped[str | None] = mapped_column(Text)
+    question_statement: Mapped[str | None] = mapped_column(Text)
+    detected_answer: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class SessionSolution(Base):

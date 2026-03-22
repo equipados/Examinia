@@ -969,6 +969,32 @@ Metadatos de esta pagina:
             extraction_confidence=payload.extraction_confidence,
         )
 
+    @staticmethod
+    def _render_correction_examples(examples: list[dict] | None) -> str:
+        """Renderiza ejemplos de correcciones del profesor como texto para el prompt."""
+        if not examples:
+            return ""
+        lines = [
+            "CORRECCIONES ANTERIORES DEL PROFESOR (usa como referencia para calibrar tu puntuacion):",
+            "El profesor ha revisado respuestas similares en este apartado y ha corregido la puntuacion de la IA.",
+            "Usa estos ejemplos para ajustar tu criterio:\n",
+        ]
+        for i, ex in enumerate(examples[:5], 1):
+            lines.append(f"Ejemplo {i}:")
+            if ex.get("detected_answer"):
+                lines.append(f"  Respuesta del alumno: {ex['detected_answer']}")
+            ai_pts = ex.get("ai_awarded_points")
+            t_pts = ex.get("teacher_awarded_points")
+            mx = ex.get("max_points")
+            if ai_pts is not None:
+                lines.append(f"  La IA dio: {ai_pts}/{mx} pts")
+            lines.append(f"  El profesor corrigio a: {t_pts}/{mx} pts")
+            if ex.get("teacher_explanation"):
+                lines.append(f"  Razon del profesor: {ex['teacher_explanation']}")
+            lines.append("")
+        lines.append("")
+        return "\n".join(lines)
+
     def assess_math_answer(
         self,
         solution: SolutionTemplate,
@@ -977,6 +1003,7 @@ Metadatos de esta pagina:
         course_level: str | None = None,
         evaluation_criteria: str | None = None,
         scoring_instructions: str | None = None,
+        correction_examples: list[dict] | None = None,
     ) -> GeminiAssessment:
         _course_label = {
             "1o_bachillerato": "1o Bachillerato",
@@ -1000,7 +1027,7 @@ Respuesta detectada del alumno:
   "ocr_confidence": {extracted_part.confidence}
 }}
 
-{f"INDICACIONES DE PUNTUACION ESPECIFICAS PARA ESTE APARTADO (PRIORIDAD MAXIMA):{chr(10)}Las siguientes indicaciones detallan exactamente como se debe puntuar este apartado. Aplica estas indicaciones de forma estricta para determinar la nota parcial:{chr(10)}{scoring_instructions}{chr(10)}{chr(10)}" if scoring_instructions else ""}{f"Criterios de evaluacion especificos del examen:{chr(10)}{evaluation_criteria}{chr(10)}" if evaluation_criteria else ""}Criterios de evaluacion (estandar Bachillerato II):
+{f"INDICACIONES DE PUNTUACION ESPECIFICAS PARA ESTE APARTADO (PRIORIDAD MAXIMA):{chr(10)}Las siguientes indicaciones detallan exactamente como se debe puntuar este apartado. Aplica estas indicaciones de forma estricta para determinar la nota parcial:{chr(10)}{scoring_instructions}{chr(10)}{chr(10)}" if scoring_instructions else ""}{self._render_correction_examples(correction_examples)}{f"Criterios de evaluacion especificos del examen:{chr(10)}{evaluation_criteria}{chr(10)}" if evaluation_criteria else ""}Criterios de evaluacion (estandar Bachillerato II):
 - correcto: resultado final correcto Y procedimiento coherente.
 - parcial: procedimiento correcto con error de calculo/signo en pasos finales (merecedor de credito parcial),
   O resultado correcto sin procedimiento visible, O procedimiento mayormente correcto con resultado erroneo.

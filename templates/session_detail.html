@@ -79,6 +79,9 @@
           onsubmit="return confirm('¿Volver a corregir todos los exámenes de esta convocatoria?\n\nSe borrarán las correcciones actuales y se volverán a procesar con las soluciones y criterios vigentes.')">
       <button class="border border-orange-500 text-orange-700 hover:bg-orange-50 px-4 py-2 rounded-lg text-sm font-semibold transition">
         Recorregir todo
+        {% if n_corrections > 0 %}
+        <span class="ml-1 bg-orange-100 text-orange-800 text-xs px-1.5 py-0.5 rounded-full">{{ n_corrections }} corrección{{ 'es' if n_corrections != 1 else '' }} aprendida{{ 's' if n_corrections != 1 else '' }}</span>
+        {% endif %}
       </button>
     </form>
     {% endif %}

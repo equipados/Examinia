@@ -92,6 +92,9 @@
             {% else %}
             <span class="text-red-700 bg-red-100 px-2 py-0.5 rounded text-xs font-semibold">Incorrecto</span>
             {% endif %}
+            {% if pr.ai_awarded_points is not none and pr.awarded_points is not none and (pr.ai_awarded_points - pr.awarded_points)|abs > 0.01 %}
+            <div class="text-[10px] text-purple-600 mt-0.5" title="IA: {{ '%.2f'|format(pr.ai_awarded_points) }} → Profesor: {{ '%.2f'|format(pr.awarded_points) }}">editado</div>
+            {% endif %}
           </td>
           <td class="px-4 py-3 text-gray-600 text-xs max-w-[150px]">{{ pr.detected_answer or "—" }}</td>
           <td class="px-3 py-2 min-w-[250px]">

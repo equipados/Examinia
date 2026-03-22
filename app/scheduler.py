@@ -470,6 +470,33 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
         reports_dir = Path(upload_dir) / "informes"
         reports_dir.mkdir(parents=True, exist_ok=True)
 
+        # Cargar ejemplos de correcciones del profesor (aprendizaje)
+        from app.db_models import CorrectionExample
+        _correction_dict: dict[tuple[str, str], list[dict]] = {}
+        _ex_rows = db.query(CorrectionExample).filter(
+            CorrectionExample.session_id == submission.session_id,
+        ).all()
+        # También cargar de otras sesiones de la misma asignatura
+        if session_obj and session_obj.subject:
+            _cross = db.query(CorrectionExample).filter(
+                CorrectionExample.subject == session_obj.subject,
+                CorrectionExample.session_id != submission.session_id,
+            ).order_by(CorrectionExample.created_at.desc()).limit(50).all()
+            _ex_rows = list(_ex_rows) + list(_cross)
+        for ex in _ex_rows:
+            key = (ex.question_id, ex.part_id)
+            _correction_dict.setdefault(key, []).append({
+                "detected_answer": ex.detected_answer,
+                "ai_awarded_points": ex.ai_awarded_points,
+                "ai_explanation": ex.ai_explanation,
+                "teacher_awarded_points": ex.teacher_awarded_points,
+                "teacher_explanation": ex.teacher_explanation,
+                "max_points": ex.max_points,
+            })
+        if _correction_dict:
+            n_ex = sum(len(v) for v in _correction_dict.values())
+            _step(f"Aplicando {n_ex} corrección(es) del profesor como referencia de aprendizaje.")
+
         result = grade_exam(
             submission=exam_submission,
             solution_bank=bank,
@@ -479,6 +506,7 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
             allow_ai_solver=cfg.enable_ai_solver,
             ai_solver_min_confidence=cfg.ai_solver_min_confidence,
             evaluation_criteria=_eval_criteria,
+            correction_examples=_correction_dict if _correction_dict else None,
         )
 
         # 6. Write report
@@ -510,6 +538,8 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
                     explanation=p.explanation,
                     detected_answer=p.detected_answer,
                     incidents=json.dumps(p.incidents, ensure_ascii=False),
+                    ai_awarded_points=p.awarded_points,
+                    ai_explanation=p.explanation,
                 )
                 db.add(pr)
 

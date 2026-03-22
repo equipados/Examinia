@@ -99,6 +99,15 @@ def init_db(db_path: Path = Path("corrector.db")) -> None:
         except OperationalError:
             pass
 
+    # Migration: add ai_awarded_points and ai_explanation to part_results (v1.9.0)
+    for col in ("ai_awarded_points REAL", "ai_explanation TEXT"):
+        with _engine.connect() as conn:
+            try:
+                conn.execute(text(f"ALTER TABLE part_results ADD COLUMN {col}"))
+                conn.commit()
+            except OperationalError:
+                pass
+
     _backfill_students(_engine)
 
 

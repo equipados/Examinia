@@ -245,6 +245,7 @@ Instrucciones:
         course_level: str | None = None,
         evaluation_criteria: str | None = None,
         scoring_instructions: str | None = None,
+        correction_examples: list[dict] | None = None,
     ) -> GeminiAssessment:
         _course_label = {
             "1o_bachillerato": "1o Bachillerato",
@@ -266,6 +267,8 @@ Instrucciones:
             f"{scoring_instructions}\n\n"
             if scoring_instructions else ""
         )
+        from gemini_client import GeminiClient
+        corrections_block = GeminiClient._render_correction_examples(correction_examples)
         criteria_block = (
             f"Criterios de evaluacion especificos del examen:\n{evaluation_criteria}\n"
             if evaluation_criteria else ""
@@ -288,7 +291,7 @@ Contexto del enunciado:
 Respuesta detectada del alumno:
 {student_json}
 
-{scoring_block}{criteria_block}Criterios de evaluacion (estandar Bachillerato II):
+{scoring_block}{corrections_block}{criteria_block}Criterios de evaluacion (estandar Bachillerato II):
 - correcto: resultado final correcto Y procedimiento coherente.
 - parcial: procedimiento correcto con error de calculo/signo, O resultado correcto sin procedimiento,
   O procedimiento mayormente correcto con resultado erroneo.

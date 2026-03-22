@@ -241,8 +241,52 @@ def edit_part(
         except ValueError:
             pass
 
+    new_explanation = explanation.strip() or pr.explanation
+
+    # ── Capturar corrección del profesor como ejemplo de aprendizaje ──
+    if pr.ai_awarded_points is not None:
+        pts_changed = abs(pts - (pr.ai_awarded_points or 0)) > 0.01
+        expl_changed = new_explanation and new_explanation != (pr.ai_explanation or "")
+        if pts_changed or expl_changed:
+            from app.db_models import CorrectionExample
+            sub_for_ctx = db.query(Submission).filter(Submission.id == submission_id).first()
+            session_obj = sub_for_ctx.session if sub_for_ctx else None
+            # Buscar si ya existe un ejemplo para este apartado con esta respuesta
+            existing_ex = db.query(CorrectionExample).filter(
+                CorrectionExample.session_id == (sub_for_ctx.session_id if sub_for_ctx else 0),
+                CorrectionExample.question_id == qr.question_id,
+                CorrectionExample.part_id == pr.part_id,
+                CorrectionExample.detected_answer == pr.detected_answer,
+            ).first()
+            if existing_ex:
+                existing_ex.teacher_awarded_points = pts
+                existing_ex.teacher_explanation = new_explanation or ""
+            else:
+                # Obtener enunciado del SessionSolution si existe
+                from app.db_models import SessionSolution
+                sol = db.query(SessionSolution).filter(
+                    SessionSolution.session_id == (sub_for_ctx.session_id if sub_for_ctx else 0),
+                    SessionSolution.question_id == qr.question_id,
+                    SessionSolution.part_id == pr.part_id,
+                ).first()
+                db.add(CorrectionExample(
+                    session_id=sub_for_ctx.session_id if sub_for_ctx else 0,
+                    question_id=qr.question_id,
+                    part_id=pr.part_id,
+                    ai_awarded_points=pr.ai_awarded_points,
+                    ai_explanation=pr.ai_explanation,
+                    ai_classification=pr.status,
+                    teacher_awarded_points=pts,
+                    teacher_explanation=new_explanation or "",
+                    max_points=pr.max_points,
+                    subject=session_obj.subject if session_obj else None,
+                    course_level=session_obj.course_level if session_obj else None,
+                    question_statement=sol.question_statement if sol else None,
+                    detected_answer=pr.detected_answer,
+                ))
+
     pr.awarded_points = pts
-    pr.explanation = explanation.strip() or pr.explanation
+    pr.explanation = new_explanation
 
     # Auto-update status
     max_pts = pr.max_points or 0.0

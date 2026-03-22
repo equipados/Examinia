@@ -185,6 +185,12 @@ def session_detail(
     token_rows = db.query(TokenUsage).filter(TokenUsage.session_id == session_id).all()
     token_summary = _build_token_summary(token_rows)
 
+    # Correcciones del profesor (aprendizaje)
+    from app.db_models import CorrectionExample
+    n_corrections = db.query(CorrectionExample).filter(
+        CorrectionExample.session_id == session_id
+    ).count()
+
     return templates.TemplateResponse(
         "session_detail.html",
         {
@@ -201,6 +207,7 @@ def session_detail(
             "user": current_user,
             "course_labels": _COURSE_LABELS,
             "token_summary": token_summary,
+            "n_corrections": n_corrections,
         },
     )
 

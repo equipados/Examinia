@@ -284,6 +284,7 @@ def grade_exam(
     allow_ai_solver: bool = True,
     ai_solver_min_confidence: float = 0.75,
     evaluation_criteria: str | None = None,
+    correction_examples: dict[tuple[str, str], list[dict]] | None = None,
 ) -> ExamGradeResult:
     question_grades: list[QuestionGrade] = []
     incidents = list(submission.incidents)
@@ -403,6 +404,9 @@ def grade_exam(
             try:
                 # Indicaciones de puntuación específicas del apartado (si existen)
                 _part_scoring = template.scoring_instructions if template else None
+                _part_corrections = (correction_examples or {}).get(
+                    (question.question_id, part.part_id), []
+                )
                 assessment = gemini_client.assess_math_answer(
                     solution=template,
                     extracted_part=part,
@@ -410,6 +414,7 @@ def grade_exam(
                     course_level=submission.course_level,
                     evaluation_criteria=evaluation_criteria,
                     scoring_instructions=_part_scoring,
+                    correction_examples=_part_corrections[:5] if _part_corrections else None,
                 )
             except Exception as exc:
                 incidents.append(
