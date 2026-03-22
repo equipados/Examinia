@@ -86,12 +86,14 @@ async def upload_pdfs(
     db.commit()
 
     # Si no hay soluciones validadas todavía, lanzar extracción automática y redirigir a validación
+    # (solo en modo IA; en modo profesor se espera a que suba el PDF del profesor)
     from app.db_models import SessionSolution
     solutions_exist = db.query(SessionSolution).filter(
         SessionSolution.session_id == session_id,
     ).first() is not None
 
-    if not solutions_exist:
+    is_teacher_mode = session.solution_mode == "teacher"
+    if not solutions_exist and not is_teacher_mode:
         scheduler.solve_questions_for_session(session_id, _db_path, _config_overrides)
         return RedirectResponse(url=f"/sessions/{session_id}/solutions", status_code=status.HTTP_302_FOUND)
 

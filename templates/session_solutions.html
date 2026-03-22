@@ -444,6 +444,20 @@
     </div>
     {% endif %}
 
+    <!-- Criterios de evaluación asignados (siempre visible) -->
+    {% if has_curriculum and sol_criteria_map.get(sol.id) %}
+    <div class="px-5 py-2 bg-indigo-50 border-t border-indigo-100">
+      <div class="flex items-start gap-2 flex-wrap">
+        <span class="text-xs font-semibold text-indigo-700 mt-0.5 shrink-0">Criterios:</span>
+        {% for code in sol_criteria_map.get(sol.id, []) %}
+        {% set crit_obj = criterios | selectattr("code", "equalto", code) | first %}
+        <span class="inline-flex items-center text-xs bg-indigo-100 border border-indigo-300 text-indigo-800 rounded px-2 py-0.5 cursor-help"
+              title="{{ crit_obj.description if crit_obj else code }} ({{ crit_obj.ce_code if crit_obj else '' }})">{{ code }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     <!-- Panel editable (colapsado por defecto si ya está validado) -->
     <div id="sol-{{ sol.id }}"
          class="{% if sol.status in ('validated','manual') %}hidden{% endif %} border-t border-gray-100">
@@ -507,9 +521,9 @@
                 {% set sol_crits = sol_criteria_map.get(sol.id, []) %}
                 {% for crit in criterios %}
                 <label class="inline-flex items-center gap-1 text-xs border rounded px-2 py-1
-                              cursor-pointer hover:bg-indigo-50 transition
+                              cursor-pointer hover:bg-indigo-50 transition relative crit-label
                               {% if crit.code in sol_crits %}bg-indigo-100 border-indigo-300 text-indigo-800{% else %}bg-gray-50 border-gray-200 text-gray-600{% endif %}"
-                       title="{{ crit.description }}">
+                       data-tooltip="{{ crit.code }} ({{ crit.ce_code }}): {{ crit.description }}">
                   <input type="checkbox" class="crit-cb w-3 h-3" value="{{ crit.code }}"
                          {% if crit.code in sol_crits %}checked{% endif %}
                          onchange="updateCriteria(this)">
@@ -551,6 +565,43 @@
   {% endfor %}
 </div>
 {% endif %}
+
+<style>
+/* Tooltips mejorados para criterios de evaluación */
+.crit-label {
+  position: relative;
+}
+.crit-label:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+  width: max-content;
+  max-width: 320px;
+  z-index: 50;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,.25);
+}
+.crit-label:hover::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: #1e293b;
+  z-index: 50;
+  pointer-events: none;
+}
+</style>
 
 <script>
 function toggleSol(id) {
@@ -611,6 +662,24 @@ document.addEventListener('submit', function(e) {
         if (ptsBadge) {
           ptsBadge.textContent = parseFloat(data.max_points).toFixed(2).replace(/\.?0+$/, '') + ' pts';
         }
+      }
+
+      // Insert/update criteria badges in collapsed view
+      var existingCritDiv = card.querySelector('.criteria-collapsed');
+      if (existingCritDiv) existingCritDiv.remove();
+      if (data.criteria && data.criteria.length > 0) {
+        var critDiv = document.createElement('div');
+        critDiv.className = 'px-5 py-2 bg-indigo-50 border-t border-indigo-100 criteria-collapsed';
+        var inner = '<div class="flex items-start gap-2 flex-wrap"><span class="text-xs font-semibold text-indigo-700 mt-0.5 shrink-0">Criterios:</span>';
+        data.criteria.forEach(function(c) {
+          inner += '<span class="inline-flex items-center text-xs bg-indigo-100 border border-indigo-300 text-indigo-800 rounded px-2 py-0.5 cursor-help" title="' +
+            c.code + ' (' + c.ce + '): ' + c.desc.replace(/"/g, '&quot;') + '">' + c.code + '</span>';
+        });
+        inner += '</div>';
+        critDiv.innerHTML = inner;
+        // Insert before the edit panel
+        var editPanel = document.getElementById('sol-' + solId);
+        if (editPanel) editPanel.parentNode.insertBefore(critDiv, editPanel);
       }
     }
 

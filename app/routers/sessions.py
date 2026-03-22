@@ -686,6 +686,22 @@ def validate_solution(
         validated = sum(1 for s in all_sols if s.status in ("validated", "manual"))
         total = len(all_sols)
         ai_failed = sum(1 for s in all_sols if s.status == "ai_failed")
+        # Criterios asignados (para actualizar vista colapsada)
+        assigned_codes: list[str] = []
+        if sol and sol.criteria_codes:
+            try:
+                assigned_codes = _json.loads(sol.criteria_codes)
+            except (ValueError, TypeError):
+                pass
+        # Descripciones de criterios para tooltips
+        from app.curriculum import get_criterios, has_curriculum as _has_cur
+        session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+        criteria_info: list[dict] = []
+        if session and _has_cur(session.course_level, session.subject):
+            _all_crits = {c.code: c for c in get_criterios(session.course_level, session.subject)}
+            for code in assigned_codes:
+                c = _all_crits.get(code)
+                criteria_info.append({"code": code, "desc": c.description if c else code, "ce": c.ce_code if c else ""})
         return JSONResponse({
             "ok": True,
             "sol_id": sol_id,
@@ -694,6 +710,7 @@ def validate_solution(
             "validated": validated,
             "total": total,
             "ai_failed": ai_failed,
+            "criteria": criteria_info,
         })
     return RedirectResponse(url=f"/sessions/{session_id}/solutions", status_code=status.HTTP_302_FOUND)
 

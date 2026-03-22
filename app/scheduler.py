@@ -611,6 +611,19 @@ def _run_solve_questions(session_id: int, db_path: str, config_overrides: dict) 
     init_db(Path(db_path))
     db = next(get_db())
 
+    # ── Guard: no ejecutar si la sesión ya tiene soluciones del profesor ──
+    session_check = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+    if session_check and session_check.solution_mode == "teacher":
+        existing_sols = db.query(SessionSolution).filter(
+            SessionSolution.session_id == session_id,
+        ).first()
+        if existing_sols is not None:
+            logger.info(f"[Sesión {session_id}] Modo profesor activo con soluciones existentes; "
+                        "se omite resolución IA para no sobreescribirlas.")
+            _solving_sessions.discard(session_id)
+            db.close()
+            return
+
     try:
         import os
         from dotenv import load_dotenv
@@ -707,6 +720,17 @@ def _run_solve_questions(session_id: int, db_path: str, config_overrides: dict) 
         _step(f"Examen analizado: {len(exam_sub.questions)} ejercicio(s), {total_parts} apartado(s). Solver: {_solver_model}. Comenzando resolución...")
 
         course_level = exam_sub.course_level or (session.course_level if session else None)
+
+        # Abortar si mientras tanto se subió un PDF del profesor (modo teacher)
+        db.refresh(session)
+        if session.solution_mode == "teacher":
+            has_teacher_sols = db.query(SessionSolution).filter(
+                SessionSolution.session_id == session_id,
+                SessionSolution.status.in_(["validated", "manual"]),
+            ).first()
+            if has_teacher_sols:
+                _step("Modo profesor detectado — se omite resolución IA.")
+                return
 
         # Borrar soluciones anteriores (si se re-extrae)
         db.query(SessionSolution).filter(SessionSolution.session_id == session_id).delete()
@@ -953,6 +977,14 @@ def _run_extract_teacher_solutions(
             created += 1
         db.commit()
 
+        # Validar puntos totales contra max_total_points de la sesión
+        total_extracted = sum(v for v in part_points.values() if v is not None)
+        if session and session.max_total_points and total_extracted > 0:
+            expected = session.max_total_points
+            if abs(total_extracted - expected) > 0.01:
+                _step(f"⚠ Los puntos extraídos suman {total_extracted} pero el total configurado es {expected}. "
+                      "Revisa y corrige los puntos de cada apartado antes de iniciar la corrección.")
+
         # Log de puntuaciones extraídas
         pts_parts = []
         for qid, items in sorted(parts_per_question.items()):
@@ -967,6 +999,43 @@ def _run_extract_teacher_solutions(
             _step(f"Puntos extraídos del PDF: {' | '.join(pts_parts)}")
 
         _save_token_usage(db, gemini, "extract_teacher_pdf", session_id, None)
+
+        # ── Auto-sugerir criterios de evaluación LOMLOE ──
+        if session:
+            from app.curriculum import has_curriculum as _has_cur, get_criterios as _get_crit
+            if _has_cur(session.course_level, session.subject):
+                try:
+                    _step("Asignando criterios de evaluación LOMLOE a cada apartado...")
+                    _crits = _get_crit(session.course_level, session.subject)
+                    crit_list = [{"code": c.code, "ce": c.ce_code, "desc": c.description} for c in _crits]
+                    # Build exercise list from saved solutions
+                    saved_sols = db.query(SessionSolution).filter(
+                        SessionSolution.session_id == session_id
+                    ).all()
+                    exercises = []
+                    for s in saved_sols:
+                        key = f"{s.question_id}_{s.part_id}"
+                        stmt = s.part_statement or s.question_statement or ""
+                        # Include scoring_instructions as context for better inference
+                        if s.scoring_instructions:
+                            stmt = f"{stmt} [Puntuación: {s.scoring_instructions}]" if stmt else s.scoring_instructions
+                        exercises.append({"key": key, "statement": stmt, "answer": s.final_answer or ""})
+                    if exercises:
+                        mapping = gemini.suggest_criteria_for_exercises(exercises, crit_list)
+                        assigned_count = 0
+                        for s in saved_sols:
+                            key = f"{s.question_id}_{s.part_id}"
+                            codes = mapping.get(key, [])
+                            if codes:
+                                s.criteria_codes = json.dumps(codes)
+                                assigned_count += 1
+                        db.commit()
+                        _save_token_usage(db, gemini, "suggest_criteria", session_id, None)
+                        if assigned_count:
+                            _step(f"Criterios LOMLOE sugeridos para {assigned_count} apartado(s). Revisa y ajusta si es necesario.")
+                except Exception as e:
+                    logger.warning(f"[Sesión {session_id}] No se pudieron sugerir criterios LOMLOE: {e}")
+
         _step(f"✓ Listo: {created} apartado(s) extraídos del PDF del profesor. Revisa y valida las respuestas.")
     except Exception:
         import traceback

@@ -1242,6 +1242,78 @@ Devuelve JSON con esta estructura exacta:
             temperature=0.1,
         )
 
+    def suggest_criteria_for_exercises(
+        self,
+        exercises: list[dict],
+        criterios: list[dict],
+    ) -> dict[str, list[str]]:
+        """Sugiere criterios de evaluación LOMLOE para cada apartado del examen.
+
+        Args:
+            exercises: lista de {"key": "1_a", "statement": "...", "answer": "..."}
+            criterios: lista de {"code": "1.1", "ce": "C1", "desc": "..."}
+
+        Returns:
+            dict mapping "question_part" keys to list of criteria codes.
+        """
+        criterios_text = "\n".join(
+            f"- {c['code']} ({c['ce']}): {c['desc']}" for c in criterios
+        )
+        exercises_text = "\n".join(
+            f"- {e['key']}: {e.get('statement') or ''} → Respuesta: {e.get('answer') or '(sin respuesta)'}"
+            for e in exercises
+        )
+        prompt = f"""Eres un experto en el currículo LOMLOE de Matemáticas de Bachillerato (España).
+
+Dado un examen con los siguientes ejercicios/apartados y la lista de criterios de evaluación disponibles,
+asigna a CADA apartado los criterios de evaluación que mejor se correspondan con lo que evalúa ese ejercicio.
+
+CRITERIOS DE EVALUACIÓN DISPONIBLES:
+{criterios_text}
+
+EJERCICIOS DEL EXAMEN:
+{exercises_text}
+
+INSTRUCCIONES:
+- Asigna entre 1 y 4 criterios por apartado (los más relevantes).
+- Los criterios 9.1, 9.2, 9.3 son de actitud/trabajo en equipo y NO aplican a ejercicios de examen escritos. No los asignes nunca.
+- El criterio 6.2 (aportación de las matemáticas a la humanidad) raramente aplica a ejercicios de cálculo. Solo asígnalo si el ejercicio explícitamente lo requiere.
+- Prioriza criterios de C1 (modelizar/resolver), C2 (verificar), C5 (conexiones) y C7/C8 (representar/comunicar) que son los más habituales en exámenes.
+- Si un ejercicio implica resolución de problemas → 1.1 y/o 1.2
+- Si un ejercicio pide demostrar o justificar → 2.1
+- Si un ejercicio pide representación gráfica → 7.1
+
+Devuelve JSON con esta estructura exacta (sin markdown, sin explicaciones):
+{{
+  "1_a": ["1.1", "5.1"],
+  "1_b": ["1.1", "1.2", "2.1"],
+  "2_single": ["1.1", "7.1"]
+}}
+
+IMPORTANTE: Las claves deben ser exactamente las mismas que los ejercicios listados arriba.
+Responde SOLO con el JSON, sin texto adicional.
+"""
+        self._respect_rate_limit()
+        config = self._types.GenerateContentConfig(temperature=0.2)
+        contents = self._build_contents(prompt)
+        response = self._client.models.generate_content(
+            model=self.model,  # Flash is enough for this
+            contents=contents,
+            config=config,
+        )
+        self._last_request_ts = time.monotonic()
+        text = self._extract_text_fallback(response).strip()
+        # Parse JSON (handle markdown fences)
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        try:
+            result = json.loads(text)
+            if isinstance(result, dict):
+                return {k: v for k, v in result.items() if isinstance(v, list)}
+        except (json.JSONDecodeError, ValueError) as exc:
+            logger.warning(f"No se pudo parsear sugerencia de criterios: {exc}")
+        return {}
+
     def extract_answer_from_solution_image(
         self,
         image_path: Path,
