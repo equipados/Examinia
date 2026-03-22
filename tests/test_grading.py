@@ -44,6 +44,7 @@ class FakeGeminiClient:
         question_statement: str | None = None,
         course_level: str | None = None,
         evaluation_criteria: str | None = None,
+        scoring_instructions: str | None = None,
     ) -> GeminiAssessment:  # noqa: ARG002
         return self._assessment
 
@@ -67,6 +68,7 @@ class FailIfAssessCalledGemini(FakeGeminiClient):
         question_statement: str | None = None,
         course_level: str | None = None,
         evaluation_criteria: str | None = None,
+        scoring_instructions: str | None = None,
     ) -> GeminiAssessment:  # noqa: ARG002
         raise AssertionError("assess_math_answer should not be called for blank answers")
 

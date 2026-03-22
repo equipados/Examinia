@@ -449,6 +449,18 @@ def solutions_page(
     total_sols = len(solutions)
     solving_in_progress = any(s.status == "ai_pending" for s in solutions)
 
+    # Criterios de evaluación LOMLOE (si hay currículo para este curso/asignatura)
+    import json as _json
+    from app.curriculum import get_criterios, has_curriculum
+    _criterios = get_criterios(session.course_level, session.subject)
+    _sol_criteria_map: dict[int, list[str]] = {}
+    for s in solutions:
+        if s.criteria_codes:
+            try:
+                _sol_criteria_map[s.id] = _json.loads(s.criteria_codes)
+            except (ValueError, TypeError):
+                _sol_criteria_map[s.id] = []
+
     return templates.TemplateResponse(
         "session_solutions.html",
         {
@@ -463,6 +475,9 @@ def solutions_page(
             "session_log": session.session_log,
             "solution_mode": session.solution_mode or "ai",
             "user": current_user,
+            "criterios": _criterios,
+            "has_curriculum": has_curriculum(session.course_level, session.subject),
+            "sol_criteria_map": _sol_criteria_map,
         },
     )
 
@@ -635,11 +650,13 @@ def validate_solution(
     final_answer: str = Form(...),
     max_points: str = Form(""),
     teacher_notes: str = Form(""),
+    criteria_codes: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     from datetime import datetime, timezone
     from fastapi.responses import JSONResponse
+    import json as _json
     sol = db.query(SessionSolution).filter(
         SessionSolution.id == sol_id,
         SessionSolution.session_id == session_id,
@@ -652,6 +669,12 @@ def validate_solution(
                 sol.max_points = float(max_points)
             except ValueError:
                 pass
+        # Criterios de evaluación (viene como string CSV o vacío)
+        if criteria_codes.strip():
+            codes = [c.strip() for c in criteria_codes.split(",") if c.strip()]
+            sol.criteria_codes = _json.dumps(codes) if codes else None
+        else:
+            sol.criteria_codes = None
         sol.status = "validated"
         sol.validated_at = datetime.now(timezone.utc)
         db.commit()

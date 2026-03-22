@@ -976,6 +976,7 @@ Metadatos de esta pagina:
         question_statement: str | None = None,
         course_level: str | None = None,
         evaluation_criteria: str | None = None,
+        scoring_instructions: str | None = None,
     ) -> GeminiAssessment:
         _course_label = {
             "1o_bachillerato": "1o Bachillerato",
@@ -986,7 +987,7 @@ Evalua la respuesta de un alumno de Matematicas de {_course_label} (Espana) para
 Devuelve JSON estricto segun schema.
 
 Datos de solucion esperada:
-{solution.model_dump_json(indent=2, exclude_none=True)}
+{solution.model_dump_json(indent=2, exclude_none=True, exclude={"scoring_instructions"})}
 
 Contexto del enunciado:
 {question_statement or "No disponible"}
@@ -999,7 +1000,7 @@ Respuesta detectada del alumno:
   "ocr_confidence": {extracted_part.confidence}
 }}
 
-{f"Criterios de evaluacion especificos del examen:{chr(10)}{evaluation_criteria}{chr(10)}" if evaluation_criteria else ""}Criterios de evaluacion (estandar Bachillerato II):
+{f"INDICACIONES DE PUNTUACION ESPECIFICAS PARA ESTE APARTADO (PRIORIDAD MAXIMA):{chr(10)}Las siguientes indicaciones detallan exactamente como se debe puntuar este apartado. Aplica estas indicaciones de forma estricta para determinar la nota parcial:{chr(10)}{scoring_instructions}{chr(10)}{chr(10)}" if scoring_instructions else ""}{f"Criterios de evaluacion especificos del examen:{chr(10)}{evaluation_criteria}{chr(10)}" if evaluation_criteria else ""}Criterios de evaluacion (estandar Bachillerato II):
 - correcto: resultado final correcto Y procedimiento coherente.
 - parcial: procedimiento correcto con error de calculo/signo en pasos finales (merecedor de credito parcial),
   O resultado correcto sin procedimiento visible, O procedimiento mayormente correcto con resultado erroneo.
@@ -1197,7 +1198,8 @@ La primera página puede ser una carátula (título, datos del alumno, etc.) —
 Tu tarea es extraer:
 1. Las respuestas correctas finales de cada ejercicio y apartado.
 2. La puntuación máxima de cada pregunta (suele aparecer entre paréntesis junto al enunciado: "1. (3 puntos)", "2. (2,5p)", etc.).
-3. Los criterios de evaluación que aparezcan al pie del examen (rúbricas, indicaciones de corrección, etc.).
+3. Los criterios de evaluación GENERALES que aparezcan en el examen (rúbricas generales tipo "se valorará todo lo escrito", "cada error resta calificación", etc.).
+4. Las INDICACIONES DE PUNTUACIÓN POR APARTADO: si el examen incluye una sección tipo "Indicaciones para la puntuación de cada apartado" con instrucciones específicas de cómo puntuar cada ejercicio/apartado (ej: "Análisis correcto de la continuidad: 0,25 puntos"), extráelas y asócialas al apartado correspondiente.
 
 Instrucciones para las respuestas:
 - Identifica cada ejercicio (1, 2, 3...) y sus apartados (a, b, c... o "single" si no hay).
@@ -1208,18 +1210,28 @@ Instrucciones para las respuestas:
 - NO inventes respuestas. Si no ves la solución claramente, omite ese apartado.
 
 Instrucciones para las puntuaciones:
-- Extrae el valor numérico de la puntuación total de cada pregunta (ej: "3 puntos" → 3.0).
-- Si una pregunta no tiene puntuación visible, usa null.
-- Incluye question_max_points en TODOS los apartados de la misma pregunta con el mismo valor.
+- Hay DOS campos de puntuación: question_max_points (total de la pregunta) y part_max_points (puntos de este apartado concreto).
+- question_max_points: puntuación TOTAL de la pregunta completa (ej: "1. (3 puntos)" → 3.0). Si la pregunta no tiene puntuación global visible, usa null. Incluye el mismo valor en TODOS los apartados de la misma pregunta.
+- part_max_points: puntuación de ESTE APARTADO ESPECÍFICO. Si cada apartado tiene sus propios puntos indicados (ej: "a. (0,75 puntos)", "b. (0,5 puntos)"), extrae ese valor aquí. Si no hay puntos específicos por apartado, usa null.
+- IMPORTANTE: Muchos exámenes ponen los puntos JUNTO A CADA APARTADO (ej: "a. (0,75 puntos)"). En ese caso, part_max_points debe tener el valor de ese apartado (0.75), y question_max_points debe ser la SUMA de todos los apartados de esa pregunta (ej: 0.75+0.75+0.5=2.0).
+- Si solo hay puntos a nivel de pregunta (sin desglose por apartado), usa question_max_points y deja part_max_points como null.
+
+Instrucciones para las indicaciones de puntuación por apartado:
+- Busca secciones como "Indicaciones para la puntuación de cada apartado", "Rúbrica por apartado", "Criterios de puntuación por ejercicio" o tablas similares.
+- Si existen, extrae las indicaciones COMPLETAS de cada apartado y ponlas en el campo "scoring_instructions" del apartado correspondiente.
+- Incluye TODO el texto de las indicaciones para ese apartado, tal cual aparece (ej: "Análisis correcto de la continuidad de cada rama: 0,25 puntos\\nAnálisis correcto de la continuidad en x=0: 0,25 puntos\\nConclusión correcta: 0,25 puntos").
+- Si un ejercicio no tiene apartados (es "single"), pon las indicaciones del ejercicio completo en scoring_instructions.
+- Si no hay indicaciones específicas para un apartado, deja scoring_instructions vacío ("").
 
 Devuelve JSON con esta estructura exacta:
 {
   "solutions": [
-    {"question_id": "1", "part_id": "a", "answer": "x=3", "question_max_points": 3.0, "notes": ""},
-    {"question_id": "1", "part_id": "b", "answer": "-3/2", "question_max_points": 3.0, "notes": ""},
-    {"question_id": "2", "part_id": "single", "answer": "12", "question_max_points": 2.5, "notes": ""}
+    {"question_id": "1", "part_id": "a", "answer": "x=3", "question_max_points": 2.0, "part_max_points": 0.75, "scoring_instructions": "Análisis correcto: 0,5 puntos\\nConclusión: 0,25 puntos", "notes": ""},
+    {"question_id": "1", "part_id": "b", "answer": "-3/2", "question_max_points": 2.0, "part_max_points": 0.75, "scoring_instructions": "", "notes": ""},
+    {"question_id": "1", "part_id": "c", "answer": "y=2x+1", "question_max_points": 2.0, "part_max_points": 0.5, "scoring_instructions": "", "notes": ""},
+    {"question_id": "2", "part_id": "single", "answer": "12", "question_max_points": 2.5, "part_max_points": null, "scoring_instructions": "Plantea bien la condición: 0,5 puntos\\nResuelve correctamente: 1 punto", "notes": ""}
   ],
-  "evaluation_criteria": "Criterios de corrección: apartado a) 1 punto si...",
+  "evaluation_criteria": "Criterios generales de corrección: A. Se valorará todo lo escrito...",
   "notes": ""
 }
 """

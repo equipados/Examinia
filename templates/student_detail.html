@@ -79,6 +79,18 @@ function confirmRename(form) {
   </div>
 </div>
 
+<!-- Tabs de navegación -->
+<div class="flex gap-1 mb-6 border-b border-gray-200">
+  <a href="/students/{{ student.id }}"
+     class="px-4 py-2 text-sm font-medium border-b-2 border-indigo-500 text-indigo-700">Historial</a>
+  <a href="/students/{{ student.id }}/criterios"
+     class="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300 transition">Criterios</a>
+  <a href="/students/{{ student.id }}/competencias-clave"
+     class="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300 transition">Competencias</a>
+  <a href="/students/{{ student.id }}/mejoras"
+     class="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300 transition">Mejoras</a>
+</div>
+
 <!-- History table -->
 {% if history %}
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

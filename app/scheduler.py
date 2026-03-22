@@ -454,6 +454,7 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
                 part=s.part_id,
                 expected_final_answer=s.final_answer,
                 max_points=s.max_points if s.max_points else 0.0,
+                scoring_instructions=s.scoring_instructions or None,
             )
             for s in sess_sols
         ])
@@ -894,22 +895,38 @@ def _run_extract_teacher_solutions(
         for item in extraction.solutions:
             parts_per_question[item.question_id].append(item)
 
-        # Calcular max_points por apartado (question_max_points / n_parts de esa pregunta)
+        # Calcular max_points por apartado:
+        # Prioridad 1: part_max_points (puntos por apartado explícitos del enunciado)
+        # Prioridad 2: question_max_points / n_parts (prorrateo equitativo)
         part_points: dict[tuple[str, str], float | None] = {}
         for qid, items in parts_per_question.items():
-            q_pts = next((i.question_max_points for i in items if i.question_max_points is not None), None)
-            if q_pts is not None:
-                pts_each = round(q_pts / len(items), 4)
+            # Comprobar si algún apartado tiene part_max_points
+            has_part_pts = any(i.part_max_points is not None for i in items)
+            if has_part_pts:
+                # Usar puntos individuales por apartado
                 for i in items:
-                    part_points[(qid, i.part_id)] = pts_each
+                    part_points[(qid, i.part_id)] = i.part_max_points
             else:
-                for i in items:
-                    part_points[(qid, i.part_id)] = None
+                # Prorratear puntos de la pregunta entre apartados
+                q_pts = next((i.question_max_points for i in items if i.question_max_points is not None), None)
+                if q_pts is not None:
+                    pts_each = round(q_pts / len(items), 4)
+                    for i in items:
+                        part_points[(qid, i.part_id)] = pts_each
+                else:
+                    for i in items:
+                        part_points[(qid, i.part_id)] = None
 
         # Criterios de evaluación (comunes a todos los apartados de la convocatoria)
         criteria = extraction.evaluation_criteria or None
         if criteria:
             _step(f"Criterios de evaluación extraídos ({len(criteria)} caracteres).")
+
+        # Indicaciones de puntuación por apartado
+        has_scoring = any(bool(item.scoring_instructions) for item in extraction.solutions)
+        if has_scoring:
+            n_with = sum(1 for item in extraction.solutions if item.scoring_instructions)
+            _step(f"Indicaciones de puntuación por apartado extraídas ({n_with} apartados).")
 
         # Borrar soluciones anteriores
         db.query(SessionSolution).filter(SessionSolution.session_id == session_id).delete()
@@ -928,6 +945,7 @@ def _run_extract_teacher_solutions(
                 final_answer=item.answer or None,
                 max_points=pts,
                 evaluation_criteria=criteria,
+                scoring_instructions=item.scoring_instructions or None,
                 status="validated" if has_answer else "ai_failed",
                 validated_at=now if has_answer else None,
             )
@@ -935,11 +953,18 @@ def _run_extract_teacher_solutions(
             created += 1
         db.commit()
 
-        if criteria:
-            pts_info = {qid: items[0].question_max_points for qid, items in parts_per_question.items() if items[0].question_max_points is not None}
-            if pts_info:
-                pts_str = ", ".join(f"Ej.{k}={v}p" for k, v in sorted(pts_info.items()))
-                _step(f"Puntuaciones extraídas del examen: {pts_str}")
+        # Log de puntuaciones extraídas
+        pts_parts = []
+        for qid, items in sorted(parts_per_question.items()):
+            has_part_pts = any(i.part_max_points is not None for i in items)
+            if has_part_pts:
+                for i in items:
+                    if i.part_max_points is not None:
+                        pts_parts.append(f"Ej{qid}.{i.part_id}={i.part_max_points}p")
+            elif items[0].question_max_points is not None:
+                pts_parts.append(f"Ej{qid}={items[0].question_max_points}p ({len(items)} apt)")
+        if pts_parts:
+            _step(f"Puntos extraídos del PDF: {' | '.join(pts_parts)}")
 
         _save_token_usage(db, gemini, "extract_teacher_pdf", session_id, None)
         _step(f"✓ Listo: {created} apartado(s) extraídos del PDF del profesor. Revisa y valida las respuestas.")

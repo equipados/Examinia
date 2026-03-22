@@ -91,6 +91,14 @@ def init_db(db_path: Path = Path("corrector.db")) -> None:
         except OperationalError:
             pass
 
+    # Migration: add criteria_codes to session_solutions (v1.8.0)
+    with _engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE session_solutions ADD COLUMN criteria_codes TEXT"))
+            conn.commit()
+        except OperationalError:
+            pass
+
     _backfill_students(_engine)
 
 

@@ -401,12 +401,15 @@ def grade_exam(
 
             logger.debug(f"      [{label}] Evaluando respuesta con Gemini ({p_idx}/{total_parts})...")
             try:
+                # Indicaciones de puntuación específicas del apartado (si existen)
+                _part_scoring = template.scoring_instructions if template else None
                 assessment = gemini_client.assess_math_answer(
                     solution=template,
                     extracted_part=part,
                     question_statement=question.statement,
                     course_level=submission.course_level,
                     evaluation_criteria=evaluation_criteria,
+                    scoring_instructions=_part_scoring,
                 )
             except Exception as exc:
                 incidents.append(

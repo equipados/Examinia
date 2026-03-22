@@ -244,13 +244,14 @@ Instrucciones:
         question_statement: str | None = None,
         course_level: str | None = None,
         evaluation_criteria: str | None = None,
+        scoring_instructions: str | None = None,
     ) -> GeminiAssessment:
         _course_label = {
             "1o_bachillerato": "1o Bachillerato",
             "2o_bachillerato": "2o Bachillerato",
         }.get(course_level or "", "Bachillerato")
 
-        solution_json = solution.model_dump_json(indent=2, exclude_none=True)
+        solution_json = solution.model_dump_json(indent=2, exclude_none=True, exclude={"scoring_instructions"})
         student_json = json.dumps({
             "student_answer_raw": extracted_part.student_answer_raw,
             "student_answer_normalized": extracted_part.student_answer_normalized or "",
@@ -258,6 +259,13 @@ Instrucciones:
             "ocr_confidence": extracted_part.confidence,
         }, ensure_ascii=False)
 
+        scoring_block = (
+            f"INDICACIONES DE PUNTUACION ESPECIFICAS PARA ESTE APARTADO (PRIORIDAD MAXIMA):\n"
+            f"Las siguientes indicaciones detallan exactamente como se debe puntuar este apartado. "
+            f"Aplica estas indicaciones de forma estricta para determinar la nota parcial:\n"
+            f"{scoring_instructions}\n\n"
+            if scoring_instructions else ""
+        )
         criteria_block = (
             f"Criterios de evaluacion especificos del examen:\n{evaluation_criteria}\n"
             if evaluation_criteria else ""
@@ -280,7 +288,7 @@ Contexto del enunciado:
 Respuesta detectada del alumno:
 {student_json}
 
-{criteria_block}Criterios de evaluacion (estandar Bachillerato II):
+{scoring_block}{criteria_block}Criterios de evaluacion (estandar Bachillerato II):
 - correcto: resultado final correcto Y procedimiento coherente.
 - parcial: procedimiento correcto con error de calculo/signo, O resultado correcto sin procedimiento,
   O procedimiento mayormente correcto con resultado erroneo.

@@ -161,6 +161,7 @@ class SolutionTemplate(BaseModel):
     common_errors: list[str] = Field(default_factory=list)
     max_points: float | None = None
     partial_credit_rules: list[PartialCreditRule] = Field(default_factory=list)
+    scoring_instructions: str | None = None  # indicaciones de puntuación específicas del apartado
     comments: str | None = None
 
     @field_validator("exercise", mode="before")
@@ -217,6 +218,8 @@ class TeacherSolutionItem(BaseModel):
     part_id: str
     answer: str
     question_max_points: float | None = None  # puntos totales de la pregunta, ej. 3.0 para "(3p)"
+    part_max_points: float | None = None     # puntos de este apartado específico, ej. 0.75 para "(0,75 puntos)"
+    scoring_instructions: str = ""  # indicaciones específicas de puntuación para este apartado
     notes: str = ""
 
     @field_validator("question_id", mode="before")

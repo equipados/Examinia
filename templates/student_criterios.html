@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Criterios — {{ student.display_name }} — Examinia{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-center gap-3">
+  <a href="/students" class="text-sm text-gray-500 hover:text-gray-800 transition font-medium">&larr; Volver a Alumnos</a>
+</div>
+
+<!-- Header card -->
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-800">{{ student.display_name }}</h1>
+    {% if student.course_level %}
+    <p class="text-sm text-gray-500 mt-1">Curso: {{ student.course_level }}</p>
+    {% endif %}
+    {% if avg_pct is not none %}
+    <p class="mt-2 text-sm font-medium">
+      Media global:
+      {% if avg_pct >= 70 %}<span class="text-green-700 font-bold">{{ avg_pct }}%</span>
+      {% elif avg_pct >= 50 %}<span class="text-orange-600 font-bold">{{ avg_pct }}%</span>
+      {% else %}<span class="text-red-600 font-bold">{{ avg_pct }}%</span>{% endif %}
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="flex gap-1 mb-6 border-b border-gray-200">
+  <a href="/students/{{ student.id }}" class="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300 transition">Historial</a>
+  <a href="/students/{{ student.id }}/criterios" class="px-4 py-2 text-sm font-medium border-b-2 border-indigo-500 text-indigo-700">Criterios</a>
+  <a href="/students/{{ student.id }}/competencias-clave" class="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300 transition">Competencias</a>
+  <a href="/students/{{ student.id }}/mejoras" class="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300 transition">Mejoras</a>
+</div>
+
+{% if not has_data %}
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
+  Datos curriculares no disponibles. Asegúrate de que las convocatorias del alumno tienen configurados
+  el <strong>curso</strong> (ej: 2o_bachillerato) y la <strong>asignatura</strong> (ej: Matemáticas II).
+</div>
+{% else %}
+
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-100">
+    <h2 class="text-base font-semibold text-gray-700">Criterios de evaluación</h2>
+    <p class="text-xs text-gray-400 mt-0.5">{{ subject }} — {{ course_level }}</p>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-xs">
+      <thead>
+        <tr class="bg-gray-50 border-b border-gray-200">
+          <th class="text-left px-3 py-2 font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[80px]">Criterio</th>
+          <th class="text-left px-3 py-2 font-semibold text-gray-600 min-w-[120px]">CE</th>
+          <th class="text-left px-3 py-2 font-semibold text-gray-600 min-w-[150px]">Saberes básicos</th>
+          <th class="text-center px-3 py-2 font-semibold text-indigo-700 min-w-[60px]">Media</th>
+          {% for sess in sessions %}
+          <th class="text-center px-3 py-2 font-semibold text-gray-600 min-w-[80px]" title="{{ sess.name }}">
+            {{ sess.name[:20] }}{% if sess.name|length > 20 %}...{% endif %}
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for row in rows %}
+        <tr class="hover:bg-gray-50">
+          <td class="px-3 py-2 font-mono font-semibold text-gray-800 sticky left-0 bg-white z-10" title="{{ row.description }}">
+            {{ row.code }}
+          </td>
+          <td class="px-3 py-2 text-gray-500">{{ row.ce_code }} {{ row.ce_name }}</td>
+          <td class="px-3 py-2 text-gray-500">{{ row.saberes }}</td>
+          <td class="px-3 py-2 text-center font-bold">
+            {% if row.avg is not none %}
+              {% if row.avg >= 70 %}<span class="text-green-700">{{ row.avg }}%</span>
+              {% elif row.avg >= 50 %}<span class="text-orange-600">{{ row.avg }}%</span>
+              {% else %}<span class="text-red-600">{{ row.avg }}%</span>{% endif %}
+            {% else %}<span class="text-gray-300">&mdash;</span>{% endif %}
+          </td>
+          {% for g in row.per_session %}
+          <td class="px-3 py-2 text-center">
+            {% if g is not none %}
+              {% if g >= 70 %}<span class="bg-green-100 text-green-800 px-2 py-0.5 rounded font-medium">{{ g }}%</span>
+              {% elif g >= 50 %}<span class="bg-orange-100 text-orange-800 px-2 py-0.5 rounded font-medium">{{ g }}%</span>
+              {% else %}<span class="bg-red-100 text-red-800 px-2 py-0.5 rounded font-medium">{{ g }}%</span>{% endif %}
+            {% else %}<span class="text-gray-300">&mdash;</span>{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

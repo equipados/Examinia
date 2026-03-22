@@ -34,8 +34,14 @@
 
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1" for="subject">Asignatura</label>
-      <input id="subject" name="subject" type="text" placeholder="Ej: Matemáticas II"
-             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <select id="subject" name="subject"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <option value="">— Sin especificar —</option>
+        <option value="Matemáticas I">Matemáticas I</option>
+        <option value="Matemáticas II">Matemáticas II</option>
+        <option value="Matemáticas Aplicadas a las Ciencias Sociales I">Matemáticas CCSS I</option>
+        <option value="Matemáticas Aplicadas a las Ciencias Sociales II">Matemáticas CCSS II</option>
+      </select>
     </div>
 
     <div>

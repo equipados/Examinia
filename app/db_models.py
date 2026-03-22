@@ -170,6 +170,8 @@ class SessionSolution(Base):
     final_answer: Mapped[str | None] = mapped_column(Text)         # respuesta validada/corregida por el profesor
     max_points: Mapped[float | None] = mapped_column(Float)        # puntos de este apartado (prorrateados de la pregunta)
     evaluation_criteria: Mapped[str | None] = mapped_column(Text)  # criterios de evaluación del examen
+    scoring_instructions: Mapped[str | None] = mapped_column(Text)  # indicaciones de puntuación específicas del apartado
+    criteria_codes: Mapped[str | None] = mapped_column(Text)       # JSON: ["1.1", "2.2"] criterios de evaluación LOMLOE
     solution_image_path: Mapped[str | None] = mapped_column(Text)  # imagen subida por el profesor
     teacher_notes: Mapped[str | None] = mapped_column(Text)
     # ai_pending | ai_solved | ai_failed | validated | manual
