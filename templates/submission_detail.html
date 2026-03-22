@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}{{ sub.student_name or sub.source_filename }} — Examinia{% endblock %}
+{% block title %}{{ (sub.student.display_name if sub.student else sub.student_name) or sub.source_filename }} — Examinia{% endblock %}
 
 {% block content %}
 <div class="mb-6">
   <a href="/sessions/{{ sub.session_id }}" class="text-blue-600 hover:underline text-sm">&larr; Volver a la convocatoria</a>
   <h1 class="text-2xl font-bold text-gray-900 mt-2">
-    {{ sub.student_name or "Alumno desconocido" }}
+    {{ (sub.student.display_name if sub.student else sub.student_name) or "Alumno desconocido" }}
   </h1>
   <div class="text-sm text-gray-500 flex flex-wrap gap-3 mt-1">
     <span>{{ sub.source_filename }}</span>
@@ -20,7 +20,7 @@
 {% if sub.status == "done" %}
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
   <div class="bg-white rounded-xl border border-gray-200 p-5 text-center col-span-2">
-    <div class="text-4xl font-bold text-blue-800">
+    <div class="text-4xl font-bold text-blue-800" id="total-display">
       {{ "%.2f"|format(sub.total_points or 0) }} <span class="text-xl text-gray-400">/ {{ "%.2f"|format(sub.max_total_points or 0) }}</span>
     </div>
     <div class="text-sm text-gray-500 mt-1">Puntuación total</div>
@@ -41,7 +41,7 @@
   </div>
 </div>
 
-<!-- Parts table -->
+<!-- Parts table (editable) -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto mb-6">
   <table class="min-w-full text-sm">
     <thead class="bg-gray-50 border-b border-gray-200">
@@ -52,26 +52,37 @@
         <th class="text-center px-4 py-3 font-semibold text-gray-700">Estado</th>
         <th class="text-left px-4 py-3 font-semibold text-gray-700">Respuesta detectada</th>
         <th class="text-left px-4 py-3 font-semibold text-gray-700">Explicación</th>
+        <th class="text-center px-4 py-3 font-semibold text-gray-700 w-10"></th>
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-100">
       {% for qr in sub.question_results %}
         {% for pr in qr.part_results %}
-        <tr class="hover:bg-gray-50 {{ 'bg-orange-50' if pr.status == 'revision_manual' else '' }}">
+        <tr class="hover:bg-gray-50 {{ 'bg-orange-50' if pr.status == 'revision_manual' else '' }}" id="row-{{ pr.id }}">
           {% if loop.first %}
           <td class="px-4 py-3 font-semibold text-gray-800" rowspan="{{ qr.part_results|length }}">
             Ej. {{ qr.question_id }}
           </td>
           {% endif %}
           <td class="px-4 py-3 text-gray-600">{{ pr.part_id }}</td>
-          <td class="px-4 py-3 text-center font-semibold
-            {% if pr.status == 'correcto' %}text-green-700
-            {% elif pr.status == 'parcial' %}text-yellow-700
-            {% elif pr.status == 'revision_manual' %}text-orange-700
-            {% else %}text-red-600{% endif %}">
-            {{ "%.2f"|format(pr.awarded_points or 0) }} / {{ "%.2f"|format(pr.max_points or 0) }}
+          <td class="px-3 py-3 text-center">
+            <input type="number" step="0.25" min="0" max="{{ pr.max_points or 10 }}"
+                   value="{{ "%.2f"|format(pr.awarded_points or 0) }}"
+                   class="w-16 border border-gray-300 rounded px-1.5 py-1 text-xs text-center font-semibold
+                     {% if pr.status == 'correcto' %}text-green-700
+                     {% elif pr.status == 'parcial' %}text-yellow-700
+                     {% elif pr.status == 'revision_manual' %}text-orange-700
+                     {% else %}text-red-600{% endif %}
+                     focus:outline-none focus:ring-1 focus:ring-blue-500"
+                   id="pts-{{ pr.id }}" data-part-id="{{ pr.id }}">
+            <span class="text-gray-400 text-xs">/</span>
+            <input type="number" step="0.25" min="0"
+                   value="{{ "%.2f"|format(pr.max_points or 0) }}"
+                   class="w-14 border border-gray-200 rounded px-1 py-0.5 text-xs text-center text-gray-500
+                     focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-400"
+                   id="maxpts-{{ pr.id }}" title="Puntuación máxima">
           </td>
-          <td class="px-4 py-3 text-center">
+          <td class="px-3 py-3 text-center" id="badge-{{ pr.id }}">
             {% if pr.status == "correcto" %}
             <span class="text-green-700 bg-green-100 px-2 py-0.5 rounded text-xs font-semibold">Correcto</span>
             {% elif pr.status == "parcial" %}
@@ -82,14 +93,93 @@
             <span class="text-red-700 bg-red-100 px-2 py-0.5 rounded text-xs font-semibold">Incorrecto</span>
             {% endif %}
           </td>
-          <td class="px-4 py-3 text-gray-600 text-xs">{{ pr.detected_answer or "—" }}</td>
-          <td class="px-4 py-3 text-gray-600 text-xs">{{ pr.explanation or "—" }}</td>
+          <td class="px-4 py-3 text-gray-600 text-xs max-w-[150px]">{{ pr.detected_answer or "—" }}</td>
+          <td class="px-3 py-2 min-w-[250px]">
+            <!-- Texto visible (click para editar) -->
+            <div id="expl-view-{{ pr.id }}" class="text-xs text-gray-600 whitespace-pre-wrap cursor-pointer hover:bg-blue-50 rounded px-2 py-1 min-h-[2em]"
+                 onclick="editExpl({{ pr.id }})" title="Click para editar">{{ pr.explanation or "—" }}</div>
+            <!-- Textarea oculto para edición -->
+            <div id="expl-edit-{{ pr.id }}" class="hidden">
+              <textarea rows="3"
+                        class="w-full border border-blue-300 rounded px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y"
+                        id="expl-{{ pr.id }}">{{ pr.explanation or '' }}</textarea>
+              <div class="flex gap-1 mt-1">
+                <button onclick="savePart({{ sub.id }}, {{ pr.id }})"
+                        class="text-white bg-blue-600 hover:bg-blue-500 text-xs font-semibold px-2 py-0.5 rounded transition">Guardar</button>
+                <button onclick="cancelExpl({{ pr.id }})"
+                        class="text-gray-500 hover:text-gray-700 text-xs px-2 py-0.5 rounded hover:bg-gray-100 transition">Cancelar</button>
+              </div>
+            </div>
+          </td>
+          <td class="px-2 py-3 text-center">
+            <button onclick="savePart({{ sub.id }}, {{ pr.id }})"
+                    class="text-blue-600 hover:text-blue-800 text-xs font-semibold px-2 py-1 rounded hover:bg-blue-50 transition"
+                    title="Guardar puntos">✓</button>
+          </td>
         </tr>
         {% endfor %}
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+<script>
+function editExpl(partId) {
+  document.getElementById('expl-view-' + partId).classList.add('hidden');
+  document.getElementById('expl-edit-' + partId).classList.remove('hidden');
+  document.getElementById('expl-' + partId).focus();
+}
+
+function cancelExpl(partId) {
+  document.getElementById('expl-edit-' + partId).classList.add('hidden');
+  document.getElementById('expl-view-' + partId).classList.remove('hidden');
+}
+
+function savePart(subId, partId) {
+  var pts = document.getElementById('pts-' + partId).value;
+  var maxPts = document.getElementById('maxpts-' + partId).value;
+  var expl = document.getElementById('expl-' + partId).value;
+  var formData = new FormData();
+  formData.append('awarded_points', pts);
+  formData.append('max_points', maxPts);
+  formData.append('explanation', expl);
+  fetch('/submissions/' + subId + '/parts/' + partId + '/edit', {
+    method: 'POST', body: formData, credentials: 'same-origin',
+    headers: {'X-Requested-With': 'XMLHttpRequest'}
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (!data.ok) return;
+    // Flash green
+    var row = document.getElementById('row-' + partId);
+    if (row) {
+      row.classList.add('bg-green-50');
+      setTimeout(function(){ row.classList.remove('bg-green-50'); }, 800);
+    }
+    // Update explanation view text and close editor
+    var viewEl = document.getElementById('expl-view-' + partId);
+    if (viewEl) viewEl.textContent = expl || '—';
+    cancelExpl(partId);
+    // Update badge
+    var badges = {correcto: 'text-green-700 bg-green-100', parcial: 'text-yellow-700 bg-yellow-100',
+                  revision_manual: 'text-orange-700 bg-orange-100', incorrecto: 'text-red-700 bg-red-100'};
+    var labels = {correcto: 'Correcto', parcial: 'Parcial', revision_manual: 'Revisión', incorrecto: 'Incorrecto'};
+    var badgeEl = document.getElementById('badge-' + partId);
+    if (badgeEl) {
+      var cls = badges[data.status] || badges.incorrecto;
+      var lbl = labels[data.status] || 'Incorrecto';
+      badgeEl.innerHTML = '<span class="' + cls + ' px-2 py-0.5 rounded text-xs font-semibold">' + lbl + '</span>';
+    }
+    // Update total
+    var totalEl = document.getElementById('total-display');
+    if (totalEl) {
+      totalEl.innerHTML = parseFloat(data.total_points).toFixed(2) +
+        ' <span class="text-xl text-gray-400">/ ' + parseFloat(data.max_total_points).toFixed(2) + '</span>';
+    }
+  })
+  .catch(function(e) { console.error('Save error:', e); });
+}
+</script>
 
 {% elif sub.status == "error" %}
 <div class="bg-red-50 border border-red-200 rounded-xl p-5 mb-6">
@@ -119,10 +209,16 @@
 
 <!-- Actions -->
 <div class="flex gap-3 flex-wrap mb-6">
-  <a href="/submissions/{{ sub.id }}/pdf"
-     class="border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-semibold transition">
-    Descargar PDF
+  <a href="/submissions/{{ sub.id }}/pdf" target="_blank"
+     class="bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+    Ver examen PDF
   </a>
+  {% if sub.status == "done" %}
+  <a href="/submissions/{{ sub.id }}/report-pdf"
+     class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+    Descargar informe PDF
+  </a>
+  {% endif %}
   {% if sub.report_path %}
   <a href="/submissions/{{ sub.id }}/report"
      class="border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-semibold transition">

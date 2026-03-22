@@ -74,7 +74,7 @@
       {% if stat.avg_score is not none %}
       <div>
         <div class="text-2xl font-bold text-blue-700">{{ stat.avg_score }}</div>
-        <div class="text-xs text-gray-500">Media</div>
+        <div class="text-xs text-gray-500">Media{% if stat.max_points %} <span class="text-gray-400">sobre {{ stat.max_points }}</span>{% endif %}</div>
       </div>
       {% endif %}
       {% if stat.revision_count > 0 %}

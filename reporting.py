@@ -57,6 +57,56 @@ def build_markdown_report(result: ExamGradeResult) -> str:
     return "\n".join(lines)
 
 
+_COURSE_DISPLAY = {"1o_bachillerato": "1º Bachillerato", "2o_bachillerato": "2º Bachillerato"}
+
+
+def build_report_from_db(submission, session_name: str | None = None, session_date: str | None = None) -> str:
+    """Genera el informe markdown desde objetos ORM (Submission + QuestionResult + PartResult)."""
+    student_name = (
+        submission.student.display_name if submission.student else submission.student_name
+    ) or "Alumno desconocido"
+    course = _COURSE_DISPLAY.get(submission.course_level or "", submission.course_level or "No detectado")
+
+    lines: list[str] = []
+    lines.append("# Informe de corrección")
+    lines.append("")
+    lines.append(f"**Alumno:** {student_name}")
+    lines.append(f"**Archivo origen:** {submission.source_filename}")
+    lines.append(f"**Curso:** {course}")
+    if session_name:
+        lines.append(f"**Prueba:** {session_name}")
+    if session_date:
+        lines.append(f"**Fecha:** {session_date}")
+    lines.append("")
+
+    for qr in submission.question_results:
+        q_max = sum(p.max_points or 0 for p in qr.part_results)
+        lines.append(f"## Ejercicio {qr.question_id} ({q_max:.2f} puntos)")
+        lines.append("")
+        for pr in qr.part_results:
+            revision_flag = " [REQUIERE REVISION MANUAL]" if pr.status == "revision_manual" else ""
+            lines.append(
+                f"### {_format_part_title(pr.part_id)} — {(pr.awarded_points or 0):.2f} / {(pr.max_points or 0):.2f}{revision_flag}"
+            )
+            lines.append(f"- Respuesta detectada: {pr.detected_answer or 'No detectada'}")
+            lines.append(f"- Estado: {pr.status}")
+            lines.append(f"- Explicación: {pr.explanation or ''}")
+            if pr.incidents:
+                import json
+                try:
+                    incs = json.loads(pr.incidents) if isinstance(pr.incidents, str) else pr.incidents
+                except Exception:
+                    incs = []
+                if incs:
+                    lines.append(f"- Incidencias del apartado: {'; '.join(incs)}")
+            lines.append("")
+
+    lines.append("## Resultado final")
+    lines.append(f"**Total: {(submission.total_points or 0):.2f} / {(submission.max_total_points or 0):.2f}**")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def write_exam_report(result: ExamGradeResult, reports_dir: Path, seen_filenames: dict[str, int]) -> Path:
     ensure_dir(reports_dir)
     base = safe_filename(result.student_name, fallback="alumno_sin_nombre")

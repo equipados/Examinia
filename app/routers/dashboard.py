@@ -88,6 +88,9 @@ def dashboard(
             1 for sub in done
             if sub.total_points is not None and _has_revision_manual(sub)
         )
+        max_pts = s.max_total_points
+        if not max_pts and done:
+            max_pts = max((sub.max_total_points for sub in done if sub.max_total_points), default=None)
         session_stats.append({
             "session": s,
             "total": total,
@@ -95,6 +98,7 @@ def dashboard(
             "pending": pending,
             "errors": errors,
             "avg_score": avg_score,
+            "max_points": max_pts,
             "revision_count": revision,
         })
 

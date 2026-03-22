@@ -201,7 +201,7 @@ def decide_part_grade(
         return GradeDecision(
             awarded_points=0.0,
             status="incorrecto",
-            rationale="No aparece respuesta valida para este apartado.",
+            rationale="No aparece respuesta válida para este apartado.",
         )
 
     if assessment.classification == "revision_manual" or assessment.detected_error_type == "illegible":
@@ -362,7 +362,7 @@ def grade_exam(
                         detected_answer=part.student_answer_raw,
                         normalized_answer=part.student_answer_normalized,
                         steps_observed=part.steps_detected,
-                        explanation="No aparece respuesta valida para este apartado. No se concede puntuacion.",
+                        explanation="No aparece respuesta válida para este apartado. No se concede puntuación.",
                         incidents=[],
                     )
                 )

@@ -405,8 +405,9 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
         from utils import round_points as _rp
         sol_pts = {(s.question_id, s.part_id): s.max_points for s in sess_sols if s.max_points}
 
+        pts_from_solutions = False
         if sol_pts:
-            # Prioridad 1: puntos extraídos del PDF del profesor
+            # Prioridad 1: puntos de las soluciones validadas (profesor o corregidas manualmente)
             for q in exam_submission.questions:
                 for p in q.parts:
                     key = (q.question_id, p.part_id)
@@ -414,7 +415,8 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
                         p.max_points = sol_pts[key]
                 q.max_points = _rp(sum(p.max_points or 0.0 for p in q.parts))
             total_extracted = sum(q.max_points or 0.0 for q in exam_submission.questions)
-            _step(f"Puntuaciones del PDF del profesor aplicadas: {total_extracted} pts en total.")
+            _step(f"Puntuaciones de las soluciones validadas aplicadas: {total_extracted} pts en total.")
+            pts_from_solutions = True
             # Eliminar incidencias de reparto equitativo: ya no aplican al usar puntos del profesor
             exam_submission.incidents = [
                 inc for inc in exam_submission.incidents
@@ -431,7 +433,8 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
                 _step(f"Puntuaciones repartidas equitativamente a {session_obj.max_total_points} pts.")
 
         # Escalar si max_total_points difiere del total actual
-        if session_obj and session_obj.max_total_points:
+        # PERO NO escalar si los puntos vienen de soluciones validadas (son autoritativos)
+        if session_obj and session_obj.max_total_points and not pts_from_solutions:
             current = sum(q.max_points or 0.0 for q in exam_submission.questions)
             if current > 0.01 and abs(current - session_obj.max_total_points) > 0.05:
                 _apply_session_max_points(exam_submission, session_obj.max_total_points)

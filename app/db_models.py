@@ -43,6 +43,7 @@ class ExamSession(Base):
     grading_instructions: Mapped[str | None] = mapped_column(Text)   # instrucciones del profesor para la IA
     send_email_on_completion: Mapped[int] = mapped_column(Integer, default=0)  # 1 = enviar email al terminar
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"))
+    weight: Mapped[float] = mapped_column(Float, default=1.0)               # ponderación en media del alumno
 
     submissions: Mapped[list[Submission]] = relationship("Submission", back_populates="session", cascade="all, delete-orphan")
 
@@ -149,6 +150,7 @@ class Student(Base):
     normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
     course_level: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
+    email: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     submissions: Mapped[list["Submission"]] = relationship("Submission", back_populates="student")

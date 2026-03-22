@@ -83,6 +83,14 @@ def init_db(db_path: Path = Path("corrector.db")) -> None:
         except OperationalError:
             pass
 
+    # Migration: add weight to exam_sessions
+    with _engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE exam_sessions ADD COLUMN weight REAL DEFAULT 1.0"))
+            conn.commit()
+        except OperationalError:
+            pass
+
     _backfill_students(_engine)
 
 

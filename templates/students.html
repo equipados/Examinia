@@ -38,35 +38,43 @@
       <tr>
         <th class="sticky left-0 bg-gray-50 px-4 py-3 text-left font-semibold text-gray-700 whitespace-nowrap">Alumno</th>
         <th class="px-4 py-3 text-left font-semibold text-gray-700 whitespace-nowrap">Curso</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700 whitespace-nowrap">Email</th>
         {% for sess in sessions %}
         <th class="px-3 py-3 text-center font-semibold text-gray-700 whitespace-nowrap max-w-[120px]"
-            title="{{ sess.name }}">
-          <span class="block truncate max-w-[110px]">{{ sess.name }}</span>
-          {% if sess.date %}
-          <span class="block text-xs font-normal text-gray-400">{{ sess.date }}</span>
+            title="{{ sess.name }}{% if session_weights.get(sess.id, 1.0) != 1.0 %} (peso {{ session_weights.get(sess.id, 1.0) }}){% endif %}">
+          <a href="/sessions/{{ sess.id }}/solutions" class="text-blue-700 hover:underline">
+            <span class="block truncate max-w-[110px]">{{ sess.name }}</span>
+            {% if sess.date %}
+            <span class="block text-xs font-normal text-gray-400">{{ sess.date }}</span>
+            {% endif %}
+          </a>
+          {% if session_weights.get(sess.id, 1.0) != 1.0 %}
+          <span class="block text-xs font-normal text-indigo-500">peso {{ session_weights.get(sess.id, 1.0) }}</span>
           {% endif %}
         </th>
         {% endfor %}
-        <th class="px-4 py-3 text-center font-semibold text-gray-700 whitespace-nowrap">Media</th>
+        <th class="px-4 py-3 text-center font-semibold text-gray-700 whitespace-nowrap">Media pond.</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-100 bg-white">
       {% for student in students %}
-      {% set ns = namespace(pct_sum=0, pct_count=0) %}
+      {% set ns = namespace(weighted_sum=0, weight_total=0) %}
       <tr class="hover:bg-gray-50 transition">
         <td class="sticky left-0 bg-white px-4 py-3 whitespace-nowrap">
           <a href="/students/{{ student.id }}"
              class="font-medium text-blue-700 hover:underline">{{ student.display_name }}</a>
         </td>
         <td class="px-4 py-3 text-gray-500 whitespace-nowrap">{{ student.course_level or "—" }}</td>
+        <td class="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">{{ student.email or "—" }}</td>
         {% for sess in sessions %}
         {% set sub = grid.get((student.id, sess.id)) %}
         {% if sub %}
           {% set denom = session_max.get(sess.id, 0) %}
           {% if denom and sub.total_points is not none %}
             {% set pct = (sub.total_points / denom * 100) | round(1) %}
-            {% set ns.pct_sum = ns.pct_sum + pct %}
-            {% set ns.pct_count = ns.pct_count + 1 %}
+            {% set w = session_weights.get(sess.id, 1.0) %}
+            {% set ns.weighted_sum = ns.weighted_sum + pct * w %}
+            {% set ns.weight_total = ns.weight_total + w %}
             {% if pct >= 70 %}
               {% set cell_cls = "bg-green-100 text-green-800" %}
             {% elif pct >= 50 %}
@@ -88,8 +96,8 @@
         {% endif %}
         {% endfor %}
         <td class="px-4 py-3 text-center font-semibold text-gray-700">
-          {% if ns.pct_count > 0 %}
-            {% set avg = (ns.pct_sum / ns.pct_count) | round(1) %}
+          {% if ns.weight_total > 0 %}
+            {% set avg = (ns.weighted_sum / ns.weight_total) | round(1) %}
             {% if avg >= 70 %}
               <span class="text-green-700">{{ avg }}%</span>
             {% elif avg >= 50 %}

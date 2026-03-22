@@ -43,12 +43,18 @@ def create_session(
     solver_provider: str = Form("gemini-pro"),
     grading_instructions: str = Form(""),
     send_email_on_completion: str = Form(""),
+    weight: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RedirectResponse:
     mtp = None
     try:
         mtp = float(max_total_points) if max_total_points.strip() else None
+    except ValueError:
+        pass
+    w = 1.0
+    try:
+        w = float(weight) if weight.strip() else 1.0
     except ValueError:
         pass
     session = ExamSession(
@@ -62,6 +68,7 @@ def create_session(
         grading_instructions=grading_instructions.strip() or None,
         send_email_on_completion=1 if send_email_on_completion else 0,
         created_by_user_id=current_user.id,
+        weight=w,
     )
     db.add(session)
     db.commit()
@@ -97,6 +104,23 @@ def set_max_points(
     if session:
         try:
             session.max_total_points = float(max_total_points) if max_total_points.strip() else None
+        except ValueError:
+            pass
+        db.commit()
+    return RedirectResponse(url=f"/sessions/{session_id}", status_code=status.HTTP_302_FOUND)
+
+
+@router.post("/{session_id}/set-weight")
+def set_weight(
+    session_id: int,
+    weight: str = Form(""),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RedirectResponse:
+    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+    if session:
+        try:
+            session.weight = float(weight) if weight.strip() else 1.0
         except ValueError:
             pass
         db.commit()
@@ -212,6 +236,42 @@ def start_grading(
         Submission.status == "pending",
     ).all()
     for sub in pending_subs:
+        scheduler.enqueue(sub.id, _db_path, str(_upload_dir), _config_overrides)
+
+    return RedirectResponse(url=f"/sessions/{session_id}", status_code=status.HTTP_302_FOUND)
+
+
+@router.post("/{session_id}/regrade-all")
+def regrade_all(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RedirectResponse:
+    """Resetea todas las submissions a pending y las re-encola para corrección."""
+    from app import scheduler
+    from app.routers.submissions import _upload_dir
+
+    subs = db.query(Submission).filter(
+        Submission.session_id == session_id,
+        Submission.status.in_(["done", "error"]),
+    ).all()
+
+    for sub in subs:
+        # Borrar resultados anteriores
+        for qr in sub.question_results:
+            db.query(PartResult).filter(PartResult.question_id_fk == qr.id).delete()
+        db.query(QuestionResult).filter(QuestionResult.submission_id == sub.id).delete()
+        sub.status = "pending"
+        sub.error_message = None
+        sub.total_points = None
+        sub.max_total_points = None
+        sub.incidents = None
+        sub.processing_log = None
+        sub.processed_at = None
+
+    db.commit()
+
+    for sub in subs:
         scheduler.enqueue(sub.id, _db_path, str(_upload_dir), _config_overrides)
 
     return RedirectResponse(url=f"/sessions/{session_id}", status_code=status.HTTP_302_FOUND)
@@ -430,6 +490,9 @@ async def upload_teacher_pdf(
     with dest.open("wb") as f:
         shutil.copyfileobj(teacher_pdf.file, f)
 
+    # Borrar soluciones anteriores para evitar duplicados al re-subir
+    db.query(SessionSolution).filter(SessionSolution.session_id == session_id).delete()
+
     session.solution_mode = "teacher"
     session.session_log = "[]"
     session.current_step = "Iniciando extracción del PDF del profesor..."
@@ -570,6 +633,7 @@ def validate_solution(
     sol_id: int,
     request: Request,
     final_answer: str = Form(...),
+    max_points: str = Form(""),
     teacher_notes: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -583,6 +647,11 @@ def validate_solution(
     if sol:
         sol.final_answer = final_answer.strip()
         sol.teacher_notes = teacher_notes.strip() or None
+        if max_points.strip():
+            try:
+                sol.max_points = float(max_points)
+            except ValueError:
+                pass
         sol.status = "validated"
         sol.validated_at = datetime.now(timezone.utc)
         db.commit()
@@ -598,6 +667,7 @@ def validate_solution(
             "ok": True,
             "sol_id": sol_id,
             "final_answer": sol.final_answer if sol else "",
+            "max_points": sol.max_points if sol else None,
             "validated": validated,
             "total": total,
             "ai_failed": ai_failed,
@@ -664,6 +734,162 @@ async def upload_solution_image(
 
     db.commit()
     return RedirectResponse(url=f"/sessions/{session_id}/solutions", status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/{session_id}/informes-zip")
+def download_informes_zip(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Descarga un ZIP con todos los informes PDF de la convocatoria."""
+    import io
+    import zipfile
+    from app.pdf_report import build_pdf_from_submission
+
+    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+    if session is None:
+        return HTMLResponse("Convocatoria no encontrada", status_code=404)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for sub in session.submissions:
+            if sub.status != "done":
+                continue
+            student_name = (
+                sub.student.display_name if sub.student else sub.student_name
+            ) or "alumno"
+            safe_name = student_name.replace(" ", "_").replace("/", "_")
+            pdf_bytes = build_pdf_from_submission(sub, session)
+            zf.writestr(f"informe_{safe_name}.pdf", pdf_bytes)
+
+    buf.seek(0)
+    safe_session = (session.name or "convocatoria").replace(" ", "_")
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="informes_{safe_session}.zip"'},
+    )
+
+
+# ── Envío de informes a alumnos ───────────────────────────────────────────────
+
+@router.get("/{session_id}/emails", response_class=HTMLResponse)
+def session_emails_page(
+    session_id: int,
+    request: Request,
+    sent: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    from app.email_service import smtp_configured
+    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+    if session is None:
+        return HTMLResponse("Convocatoria no encontrada", status_code=404)
+
+    submissions = (
+        db.query(Submission)
+        .filter(Submission.session_id == session_id)
+        .order_by(Submission.student_name)
+        .all()
+    )
+
+    sent_ids = set(sent.split(",")) if sent else set()
+
+    return templates.TemplateResponse(
+        "session_emails.html",
+        {
+            "request": request,
+            "session": session,
+            "submissions": submissions,
+            "smtp_ok": smtp_configured(),
+            "sent_ids": sent_ids,
+            "user": current_user,
+        },
+    )
+
+
+@router.post("/{session_id}/send-report/{submission_id}")
+def send_student_report(
+    session_id: int,
+    submission_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RedirectResponse:
+    from app.email_service import send_student_report_email
+    from app.pdf_report import build_combined_pdf
+
+    sub = db.query(Submission).filter(
+        Submission.id == submission_id,
+        Submission.session_id == session_id,
+    ).first()
+    if not sub or sub.status != "done":
+        return RedirectResponse(url=f"/sessions/{session_id}/emails", status_code=302)
+
+    student = sub.student
+    if not student or not student.email:
+        return RedirectResponse(url=f"/sessions/{session_id}/emails", status_code=302)
+
+    session = sub.session
+    combined_pdf = build_combined_pdf(sub, session)
+
+    send_student_report_email(
+        to_email=student.email,
+        student_name=student.display_name,
+        session_name=session.name if session else "Examen",
+        combined_pdf=combined_pdf,
+    )
+
+    # Redirect back with sent indicator
+    return RedirectResponse(
+        url=f"/sessions/{session_id}/emails?sent={submission_id}",
+        status_code=302,
+    )
+
+
+@router.post("/{session_id}/send-selected-reports")
+def send_selected_reports(
+    session_id: int,
+    submission_ids: list[int] = Form([]),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RedirectResponse:
+    from app.email_service import send_student_report_email
+    from app.pdf_report import build_combined_pdf
+
+    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+    if session is None:
+        return RedirectResponse(url=f"/sessions/{session_id}/emails", status_code=302)
+
+    if not submission_ids:
+        return RedirectResponse(url=f"/sessions/{session_id}/emails", status_code=302)
+
+    submissions = db.query(Submission).filter(
+        Submission.id.in_(submission_ids),
+        Submission.session_id == session_id,
+        Submission.status == "done",
+    ).all()
+
+    sent_ids = []
+    for sub in submissions:
+        student = sub.student
+        if not student or not student.email:
+            continue
+        combined_pdf = build_combined_pdf(sub, session)
+        ok = send_student_report_email(
+            to_email=student.email,
+            student_name=student.display_name,
+            session_name=session.name,
+            combined_pdf=combined_pdf,
+        )
+        if ok:
+            sent_ids.append(str(sub.id))
+
+    return RedirectResponse(
+        url=f"/sessions/{session_id}/emails?sent={','.join(sent_ids)}",
+        status_code=302,
+    )
 
 
 # ── Historial / Borrado ──────────────────────────────────────────────────────

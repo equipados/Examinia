@@ -99,6 +99,11 @@ def students_list(
             ]
             session_max[sess.id] = max(pts) if pts else 0.0
 
+    # Per-session weight for weighted average
+    session_weights: dict[int, float] = {}
+    for sess in sessions:
+        session_weights[sess.id] = sess.weight if sess.weight is not None else 1.0
+
     return templates.TemplateResponse(
         "students.html",
         {
@@ -109,6 +114,7 @@ def students_list(
             "all_courses": all_courses,
             "selected_course": course,
             "session_max": session_max,
+            "session_weights": session_weights,
             "user": current_user,
         },
     )
@@ -140,24 +146,26 @@ def student_detail(
             sessions_map[sess.id] = sess
 
     history = []
-    total_pct_sum = 0.0
-    pct_count = 0
+    weighted_sum = 0.0
+    weight_total = 0.0
     for sub in subs:
         sess = sessions_map.get(sub.session_id)
         denom = (sess.max_total_points if sess and sess.max_total_points else sub.max_total_points) or 0.0
+        w = (sess.weight if sess and sess.weight is not None else 1.0)
         pct: float | None = None
         if denom and sub.total_points is not None:
             pct = round(sub.total_points / denom * 100, 1)
-            total_pct_sum += pct
-            pct_count += 1
+            weighted_sum += pct * w
+            weight_total += w
         history.append({
             "submission": sub,
             "session": sess,
             "pct": pct,
             "denom": denom,
+            "weight": w,
         })
 
-    avg_pct = round(total_pct_sum / pct_count, 1) if pct_count else None
+    avg_pct = round(weighted_sum / weight_total, 1) if weight_total > 0 else None
 
     return templates.TemplateResponse(
         "student_detail.html",
@@ -210,4 +218,18 @@ def rename_student(
     student.display_name = new_name
     student.normalized_name = new_norm
     db.commit()
+    return RedirectResponse(url=f"/students/{student_id}", status_code=status.HTTP_302_FOUND)
+
+
+@router.post("/{student_id}/update-email")
+def update_student_email(
+    student_id: int,
+    email: str = Form(""),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RedirectResponse:
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if student:
+        student.email = email.strip() or None
+        db.commit()
     return RedirectResponse(url=f"/students/{student_id}", status_code=status.HTTP_302_FOUND)

@@ -474,11 +474,20 @@
                      placeholder="Ej: x = 2, f'(x) = 2x+1, I = x^3/3 + C"
                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Notas (opcional)</label>
-              <input type="text" name="teacher_notes" value="{{ sol.teacher_notes or '' }}"
-                     placeholder="Criterios de corrección adicionales..."
-                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div class="flex gap-4">
+              <div class="w-36">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Puntos máx.</label>
+                <input type="number" name="max_points" step="0.25" min="0"
+                       value="{{ "%.2g"|format(sol.max_points) if sol.max_points is not none else '' }}"
+                       placeholder="Ej: 2.5"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div class="flex-1">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Notas (opcional)</label>
+                <input type="text" name="teacher_notes" value="{{ sol.teacher_notes or '' }}"
+                       placeholder="Criterios de corrección adicionales..."
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
             </div>
             <button type="submit"
                     class="bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-lg text-sm font-semibold transition">
@@ -562,6 +571,14 @@ document.addEventListener('submit', function(e) {
       var answerSpan = card.querySelector('.font-mono.text-sm.text-gray-800');
       if (answerSpan) {
         answerSpan.textContent = data.final_answer;
+      }
+
+      // Update max_points badge if changed
+      if (data.max_points !== null && data.max_points !== undefined) {
+        var ptsBadge = card.querySelector('.text-indigo-700.bg-indigo-50');
+        if (ptsBadge) {
+          ptsBadge.textContent = parseFloat(data.max_points).toFixed(2).replace(/\.?0+$/, '') + ' pts';
+        }
       }
     }
 

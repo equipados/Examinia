@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Enviar informes — {{ session.name }} — Examinia{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <a href="/sessions/{{ session.id }}" class="text-blue-600 hover:underline text-sm">&larr; Volver a la convocatoria</a>
+  <h1 class="text-2xl font-bold text-gray-900 mt-2">Enviar informes a alumnos</h1>
+  <p class="text-sm text-gray-500 mt-1">{{ session.name }}{% if session.date %} — {{ session.date }}{% endif %}</p>
+</div>
+
+{% if not smtp_ok %}
+<div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+  <p class="text-sm text-red-800 font-semibold">SMTP no configurado</p>
+  <p class="text-xs text-red-600 mt-1">Configura las variables SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD y SMTP_FROM en el archivo .env para poder enviar emails.</p>
+</div>
+{% endif %}
+
+{% if submissions %}
+<form method="post" action="/sessions/{{ session.id }}/send-selected-reports" id="send-form">
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+  <table class="min-w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="px-3 py-3 text-center w-10">
+          <input type="checkbox" id="select-all" checked
+                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                 title="Seleccionar/deseleccionar todos">
+        </th>
+        <th class="text-left px-4 py-3 font-semibold text-gray-700">Alumno</th>
+        <th class="text-left px-4 py-3 font-semibold text-gray-700">Email</th>
+        <th class="text-center px-4 py-3 font-semibold text-gray-700">Nota</th>
+        <th class="text-center px-4 py-3 font-semibold text-gray-700">Estado</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for sub in submissions %}
+      {% set student_name = (sub.student.display_name if sub.student else sub.student_name) or "Desconocido" %}
+      {% set student_email = sub.student.email if sub.student and sub.student.email else None %}
+      {% set can_send = sub.status == "done" and student_email and smtp_ok %}
+      <tr class="hover:bg-gray-50 {{ 'bg-green-50' if sub.id|string in sent_ids else '' }}">
+        <td class="px-3 py-3 text-center">
+          {% if can_send %}
+          <input type="checkbox" name="submission_ids" value="{{ sub.id }}" checked
+                 class="sub-check rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
+          {% elif sub.id|string in sent_ids and student_email %}
+          <input type="checkbox" name="submission_ids" value="{{ sub.id }}"
+                 class="sub-check rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
+          {% else %}
+          <input type="checkbox" disabled
+                 class="rounded border-gray-200 text-gray-300 cursor-not-allowed">
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 font-medium text-gray-800">{{ student_name }}</td>
+        <td class="px-4 py-3 text-gray-600 text-xs">
+          {% if student_email %}
+            {{ student_email }}
+          {% elif sub.student %}
+            <span class="text-orange-500">Sin email — <a href="/students/{{ sub.student.id }}" class="underline">asignar</a></span>
+          {% else %}
+            <span class="text-gray-400">Sin alumno vinculado</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-center font-semibold text-gray-800">
+          {% if sub.status == "done" %}
+            {{ "%.2f"|format(sub.total_points or 0) }} / {{ "%.2f"|format(sub.max_total_points or 0) }}
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-center">
+          {% if sub.id|string in sent_ids %}
+            <span class="text-green-700 bg-green-100 px-2 py-0.5 rounded text-xs font-semibold">Enviado</span>
+          {% elif sub.status == "done" and student_email %}
+            <span class="text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs font-semibold">Listo</span>
+          {% elif sub.status == "done" and not student_email %}
+            <span class="text-orange-600 bg-orange-100 px-2 py-0.5 rounded text-xs font-semibold">Falta email</span>
+          {% elif sub.status == "error" %}
+            <span class="text-red-700 bg-red-100 px-2 py-0.5 rounded text-xs font-semibold">Error</span>
+          {% else %}
+            <span class="text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-xs font-semibold">Pendiente</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="mt-4 flex items-center gap-4">
+  <button type="submit" id="send-btn"
+          class="bg-green-700 hover:bg-green-600 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition"
+          onclick="this.disabled=true; this.textContent='Enviando...';">
+    Enviar seleccionados (<span id="selected-count">0</span>)
+  </button>
+  <span class="text-xs text-gray-400" id="send-hint"></span>
+</div>
+</form>
+
+<script>
+(function() {
+  var selectAll = document.getElementById('select-all');
+  var checks = document.querySelectorAll('.sub-check');
+  var countEl = document.getElementById('selected-count');
+  var btn = document.getElementById('send-btn');
+  var hint = document.getElementById('send-hint');
+
+  function updateCount() {
+    var n = 0;
+    checks.forEach(function(c) { if (c.checked) n++; });
+    countEl.textContent = n;
+    btn.disabled = n === 0;
+    if (n === 0) {
+      hint.textContent = 'Selecciona al menos un alumno';
+    } else {
+      hint.textContent = '';
+    }
+  }
+
+  selectAll.addEventListener('change', function() {
+    checks.forEach(function(c) { c.checked = selectAll.checked; });
+    updateCount();
+  });
+
+  checks.forEach(function(c) {
+    c.addEventListener('change', function() {
+      var allChecked = true;
+      checks.forEach(function(c2) { if (!c2.checked) allChecked = false; });
+      selectAll.checked = allChecked;
+      updateCount();
+    });
+  });
+
+  updateCount();
+})();
+</script>
+
+{% else %}
+<div class="text-center py-16 text-gray-400">
+  <p class="text-lg font-medium">No hay exámenes en esta convocatoria</p>
+</div>
+{% endif %}
+{% endblock %}

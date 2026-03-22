@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import os
 import smtplib
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 
 from loguru import logger
 
@@ -14,16 +16,8 @@ def smtp_configured() -> bool:
     return bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_FROM"))
 
 
-def send_session_completion_email(
-    to_email: str,
-    session_name: str,
-    results: list[dict],
-    teacher_name: str | None = None,
-) -> bool:
-    """Envía email con resumen de corrección. Nunca lanza excepciones.
-
-    results: lista de dicts con keys 'student_name', 'total', 'max', 'status'.
-    """
+def _smtp_send(msg: MIMEMultipart, to_email: str) -> bool:
+    """Envía un mensaje MIME vía SMTP. Nunca lanza excepciones."""
     try:
         host = os.environ.get("SMTP_HOST", "")
         port = int(os.environ.get("SMTP_PORT", "587"))
@@ -36,11 +30,49 @@ def send_session_completion_email(
             logger.warning("SMTP no configurado, no se envía email")
             return False
 
+        msg["From"] = from_email
+        msg["To"] = to_email
+
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=60) as server:
+                if user and password:
+                    server.login(user, password)
+                server.sendmail(from_email, [to_email], msg.as_string())
+        elif use_tls:
+            with smtplib.SMTP(host, port, timeout=60) as server:
+                server.starttls()
+                if user and password:
+                    server.login(user, password)
+                server.sendmail(from_email, [to_email], msg.as_string())
+        else:
+            with smtplib.SMTP(host, port, timeout=60) as server:
+                if user and password:
+                    server.login(user, password)
+                server.sendmail(from_email, [to_email], msg.as_string())
+
+        logger.info(f"Email enviado a {to_email}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error enviando email a {to_email}: {e}")
+        return False
+
+
+def send_session_completion_email(
+    to_email: str,
+    session_name: str,
+    results: list[dict],
+    teacher_name: str | None = None,
+) -> bool:
+    """Envía email con resumen de corrección al profesor. Nunca lanza excepciones.
+
+    results: lista de dicts con keys 'student_name', 'total', 'max', 'status'.
+    """
+    try:
         done = [r for r in results if r.get("status") == "done"]
         error_count = sum(1 for r in results if r.get("status") == "error")
         avg = sum(r["total"] for r in done) / len(done) if done else 0
 
-        # Construir tabla HTML
         rows_html = ""
         for r in sorted(done, key=lambda x: x.get("total", 0), reverse=True):
             pct = (r["total"] / r["max"] * 100) if r["max"] else 0
@@ -81,33 +113,44 @@ def send_session_completion_email(
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"Examinia — Corrección completada: {session_name}"
-        msg["From"] = from_email
-        msg["To"] = to_email
         msg.attach(MIMEText(html, "html", "utf-8"))
 
-        if port == 465:
-            # Puerto 465 = SSL directo (SMTP_SSL)
-            with smtplib.SMTP_SSL(host, port, timeout=30) as server:
-                if user and password:
-                    server.login(user, password)
-                server.sendmail(from_email, [to_email], msg.as_string())
-        elif use_tls:
-            # Puerto 587 = STARTTLS
-            with smtplib.SMTP(host, port, timeout=30) as server:
-                server.starttls()
-                if user and password:
-                    server.login(user, password)
-                server.sendmail(from_email, [to_email], msg.as_string())
-        else:
-            # Sin cifrado
-            with smtplib.SMTP(host, port, timeout=30) as server:
-                if user and password:
-                    server.login(user, password)
-                server.sendmail(from_email, [to_email], msg.as_string())
-
-        logger.info(f"Email enviado a {to_email} para sesión '{session_name}'")
-        return True
+        return _smtp_send(msg, to_email)
 
     except Exception as e:
-        logger.error(f"Error enviando email a {to_email}: {e}")
+        logger.error(f"Error preparando email para {to_email}: {e}")
+        return False
+
+
+def send_student_report_email(
+    to_email: str,
+    student_name: str,
+    session_name: str,
+    combined_pdf: bytes,
+) -> bool:
+    """Envía al alumno un único PDF con informe de corrección + examen escaneado."""
+    try:
+        html = f"""
+        <div style="font-family:system-ui,sans-serif;max-width:600px;margin:0 auto">
+            <p>Hola {student_name},</p>
+            <p>Adjuntamos el informe de corrección de la prueba <strong>{session_name}</strong>.</p>
+            <p style="color:#9ca3af;font-size:12px;margin-top:24px">
+                Enviado automáticamente por Examinia.
+            </p>
+        </div>
+        """
+
+        msg = MIMEMultipart("mixed")
+        msg["Subject"] = f"Examinia — Informe de corrección: {session_name}"
+        msg.attach(MIMEText(html, "html", "utf-8"))
+
+        safe_name = student_name.replace(" ", "_")
+        att = MIMEApplication(combined_pdf, _subtype="pdf")
+        att.add_header("Content-Disposition", "attachment", filename=f"informe_{safe_name}.pdf")
+        msg.attach(att)
+
+        return _smtp_send(msg, to_email)
+
+    except Exception as e:
+        logger.error(f"Error preparando email de informe para {to_email}: {e}")
         return False
