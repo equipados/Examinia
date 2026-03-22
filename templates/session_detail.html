@@ -16,7 +16,7 @@
       <!-- Control de puntuación máxima -->
       <form method="post" action="/sessions/{{ session.id }}/set-max-points"
             class="flex items-center gap-1" title="Puntuación máxima total">
-        <span class="text-gray-400">Nota sobre</span>
+        <span class="text-gray-400">Nota sobre <span class="help-tip" data-help="Base de puntuación (ej: 10). Las notas se normalizan a esta base. Déjalo vacío para usar los puntos del PDF.">?</span></span>
         <input type="number" name="max_total_points" step="0.5" min="1" max="100"
                value="{{ session.max_total_points | int if session.max_total_points else '' }}"
                placeholder="10"
@@ -26,7 +26,7 @@
       <!-- Ponderación -->
       <form method="post" action="/sessions/{{ session.id }}/set-weight"
             class="flex items-center gap-1" title="Peso en la media del alumno">
-        <span class="text-gray-400">Peso</span>
+        <span class="text-gray-400">Peso <span class="help-tip" data-help="Peso de esta prueba al calcular la media del alumno. Si vale 2 y otra vale 1, esta cuenta el doble.">?</span></span>
         <input type="number" name="weight" step="0.1" min="0" max="100"
                value="{{ session.weight if session.weight is not none else '1.0' }}"
                placeholder="1.0"

@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}Ayuda — Examinia{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+  <h1 class="text-2xl font-bold text-gray-900 mb-2">Ayuda de Examinia</h1>
+  <p class="text-sm text-gray-500 mb-8">Guia paso a paso para corregir examenes con inteligencia artificial.</p>
+
+  <!-- Indice -->
+  <nav class="bg-white rounded-xl border shadow-sm p-5 mb-8">
+    <h2 class="font-semibold text-gray-800 mb-3">Contenido</h2>
+    <ol class="list-decimal list-inside space-y-1 text-sm text-blue-700">
+      <li><a href="#flujo" class="hover:underline">Flujo de trabajo completo</a></li>
+      <li><a href="#crear" class="hover:underline">Crear una convocatoria</a></li>
+      <li><a href="#subir" class="hover:underline">Subir examenes de alumnos</a></li>
+      <li><a href="#soluciones" class="hover:underline">Configurar soluciones (IA o Profesor)</a></li>
+      <li><a href="#corregir" class="hover:underline">Corregir examenes</a></li>
+      <li><a href="#revisar" class="hover:underline">Revisar y editar notas</a></li>
+      <li><a href="#informes" class="hover:underline">Informes y envio a alumnos</a></li>
+      <li><a href="#competencias" class="hover:underline">Competencias LOMLOE</a></li>
+      <li><a href="#solvers" class="hover:underline">Modelos de IA disponibles</a></li>
+      <li><a href="#aprendizaje" class="hover:underline">Aprendizaje de correcciones</a></li>
+      <li><a href="#glosario" class="hover:underline">Glosario</a></li>
+    </ol>
+  </nav>
+
+  <div class="space-y-10">
+
+    <!-- 1. Flujo de trabajo -->
+    <section id="flujo">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">1. Flujo de trabajo completo</h2>
+      <div class="flex flex-wrap gap-2 items-center text-sm mb-4">
+        <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-medium">1. Crear convocatoria</span>
+        <span class="text-gray-400">&rarr;</span>
+        <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-medium">2. Subir PDFs alumnos</span>
+        <span class="text-gray-400">&rarr;</span>
+        <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-medium">3. Configurar soluciones</span>
+        <span class="text-gray-400">&rarr;</span>
+        <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-medium">4. Validar soluciones</span>
+        <span class="text-gray-400">&rarr;</span>
+        <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full font-medium">5. Corregir</span>
+        <span class="text-gray-400">&rarr;</span>
+        <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full font-medium">6. Revisar notas</span>
+        <span class="text-gray-400">&rarr;</span>
+        <span class="bg-purple-100 text-purple-800 px-3 py-1 rounded-full font-medium">7. Informes</span>
+      </div>
+      <p class="text-sm text-gray-600">Cada paso se muestra en un indicador visual en la pantalla de la convocatoria. No necesitas completar todos los pasos de una vez.</p>
+    </section>
+
+    <!-- 2. Crear convocatoria -->
+    <section id="crear">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">2. Crear una convocatoria</h2>
+      <div class="bg-white rounded-lg border p-4 space-y-3 text-sm text-gray-700">
+        <p>Desde el <strong>Dashboard</strong>, haz clic en <strong>"Nueva convocatoria"</strong>.</p>
+        <table class="w-full text-sm">
+          <thead><tr class="text-left text-gray-500 border-b"><th class="py-1 pr-4">Campo</th><th class="py-1">Descripcion</th></tr></thead>
+          <tbody class="divide-y divide-gray-50">
+            <tr><td class="py-2 pr-4 font-medium">Nombre</td><td>Nombre descriptivo: "Parcial T1 Oct 2025"</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">Curso</td><td>1o o 2o Bachillerato. Activa las competencias LOMLOE si seleccionas asignatura.</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">Asignatura</td><td>Si eliges "Matematicas II" + 2o Bach, podras asignar criterios de evaluacion LOMLOE a cada apartado.</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">Puntuacion maxima</td><td>Base de notas (ej: 10). Si lo dejas vacio, se usan los puntos del PDF del examen.</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">Ponderacion</td><td>Peso en la media del alumno. Si pones 2.0 y otra prueba tiene 1.0, esta vale el doble. Por defecto: 1.0.</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">Modelo IA</td><td>Elige que IA resuelve los ejercicios. Ver <a href="#solvers" class="text-blue-600 hover:underline">modelos disponibles</a>.</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">Instrucciones</td><td>Texto libre para guiar la correccion: "Valorar planteamiento", "No dar parcial sin desarrollo", etc.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 3. Subir examenes -->
+    <section id="subir">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">3. Subir examenes de alumnos</h2>
+      <div class="bg-white rounded-lg border p-4 space-y-3 text-sm text-gray-700">
+        <p>Sube los PDFs escaneados de los examenes de los alumnos. Cada PDF puede tener multiples paginas.</p>
+        <ul class="list-disc list-inside space-y-1">
+          <li>Puedes subir <strong>varios PDFs a la vez</strong> (un PDF por alumno)</li>
+          <li>La IA detecta automaticamente el nombre del alumno de la caratula</li>
+          <li>Formatos aceptados: PDF (escaneado o digital)</li>
+          <li>Resolucion recomendada: 200-300 DPI para buena lectura OCR</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 4. Soluciones -->
+    <section id="soluciones">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">4. Configurar soluciones</h2>
+      <div class="bg-white rounded-lg border p-4 space-y-4 text-sm text-gray-700">
+        <p>Hay dos modos para obtener las soluciones de referencia:</p>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+            <h3 class="font-bold text-blue-900 mb-2">Modo IA</h3>
+            <p>La IA resuelve los ejercicios automaticamente a partir del enunciado del examen. Tu solo revisas y validas.</p>
+            <p class="mt-2 text-blue-700"><strong>Ideal para:</strong> examenes estandar donde confias en la IA.</p>
+          </div>
+          <div class="bg-amber-50 rounded-lg p-4 border border-amber-200">
+            <h3 class="font-bold text-amber-900 mb-2">Modo Profesor</h3>
+            <p>Subes un PDF con las soluciones ya resueltas. La IA extrae las respuestas, puntuaciones e indicaciones de correccion.</p>
+            <p class="mt-2 text-amber-700"><strong>Ideal para:</strong> examenes con respuestas especificas o criterios detallados.</p>
+          </div>
+        </div>
+        <p>En ambos modos, debes <strong>validar cada solucion</strong> antes de iniciar la correccion. Puedes editar la respuesta, los puntos maximos y anadir notas.</p>
+      </div>
+    </section>
+
+    <!-- 5. Corregir -->
+    <section id="corregir">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">5. Corregir examenes</h2>
+      <div class="bg-white rounded-lg border p-4 space-y-3 text-sm text-gray-700">
+        <p>Una vez validadas todas las soluciones, haz clic en <strong>"Iniciar correccion"</strong>.</p>
+        <ul class="list-disc list-inside space-y-1">
+          <li>La IA lee las respuestas de cada alumno (OCR) y las compara con las soluciones</li>
+          <li>Asigna puntuacion segun: resultado correcto, calidad del procedimiento, errores detectados</li>
+          <li>Si subiste un PDF del profesor con indicaciones de puntuacion por apartado, la IA las aplica con prioridad maxima</li>
+          <li>El progreso se muestra en tiempo real en la pantalla de la convocatoria</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 6. Revisar -->
+    <section id="revisar">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">6. Revisar y editar notas</h2>
+      <div class="bg-white rounded-lg border p-4 space-y-3 text-sm text-gray-700">
+        <p>Tras la correccion, revisa los resultados de cada alumno:</p>
+        <ul class="list-disc list-inside space-y-1">
+          <li>Haz clic en el nombre del alumno para ver el detalle de cada apartado</li>
+          <li>Puedes <strong>editar los puntos</strong> directamente en la tabla (clic en el numero)</li>
+          <li>Puedes <strong>editar la explicacion</strong> (clic en el texto de la razon)</li>
+          <li>Los cambios se guardan automaticamente y se recalcula el total</li>
+          <li>Si editas una nota, el sistema <strong>aprende de tu correccion</strong> para futuras evaluaciones</li>
+        </ul>
+        <div class="bg-purple-50 rounded-lg p-3 mt-2 border border-purple-200">
+          <p class="font-medium text-purple-900">Recorregir todo</p>
+          <p class="text-purple-700">Si editas varias notas y quieres que la IA aplique tus correcciones, usa "Recorregir todo". La IA usara tus correcciones anteriores como referencia para no repetir los mismos errores.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. Informes -->
+    <section id="informes">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">7. Informes y envio a alumnos</h2>
+      <div class="bg-white rounded-lg border p-4 space-y-3 text-sm text-gray-700">
+        <ul class="list-disc list-inside space-y-1">
+          <li><strong>Exportar Excel:</strong> descarga un archivo .xlsx con todas las notas de la convocatoria</li>
+          <li><strong>Descargar informes PDF:</strong> ZIP con un informe PDF por alumno</li>
+          <li><strong>Enviar informes:</strong> envia por email a cada alumno su informe PDF + examen escaneado (requiere email configurado en el alumno y SMTP en Perfil)</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 8. Competencias LOMLOE -->
+    <section id="competencias">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">8. Competencias LOMLOE</h2>
+      <div class="bg-white rounded-lg border p-4 space-y-3 text-sm text-gray-700">
+        <p>Si seleccionas curso + asignatura con curriculo configurado (actualmente <strong>Matematicas II, 2o Bach</strong>):</p>
+        <ul class="list-disc list-inside space-y-1">
+          <li>Al validar soluciones, aparecen <strong>checkboxes con criterios de evaluacion</strong> (1.1, 2.1, etc.)</li>
+          <li>La IA sugiere automaticamente que criterios aplican a cada apartado</li>
+          <li>Pasa el raton por encima de cada criterio para ver su descripcion completa</li>
+          <li>En la ficha de cada alumno, podras ver:</li>
+        </ul>
+        <div class="grid md:grid-cols-3 gap-3 mt-2">
+          <div class="bg-gray-50 rounded p-3 border">
+            <p class="font-medium text-gray-800">Criterios</p>
+            <p class="text-xs text-gray-500">Tabla de criterios de evaluacion por prueba, con porcentaje de logro.</p>
+          </div>
+          <div class="bg-gray-50 rounded p-3 border">
+            <p class="font-medium text-gray-800">Competencias clave</p>
+            <p class="text-xs text-gray-500">Las 8 competencias clave LOMLOE (STEM, CCL, CD...) con nota media.</p>
+          </div>
+          <div class="bg-gray-50 rounded p-3 border">
+            <p class="font-medium text-gray-800">Areas de mejora</p>
+            <p class="text-xs text-gray-500">Recopilacion de explicaciones de apartados donde el alumno no obtuvo la maxima nota.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. Modelos IA -->
+    <section id="solvers">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">9. Modelos de IA disponibles</h2>
+      <div class="bg-white rounded-lg border p-4 text-sm">
+        <table class="w-full">
+          <thead><tr class="text-left text-gray-500 border-b"><th class="py-2 pr-4">Modelo</th><th class="py-2 pr-4">Precision</th><th class="py-2 pr-4">Velocidad</th><th class="py-2">Coste</th></tr></thead>
+          <tbody class="divide-y divide-gray-50 text-gray-700">
+            <tr><td class="py-2 pr-4 font-medium">Gemini 2.5 Pro</td><td>Muy alta</td><td>Media</td><td>$1.25 / $10 por 1M tokens</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">Gemini 2.5 Flash</td><td>Alta</td><td>Rapida</td><td>$0.15 / $0.60 por 1M tokens</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">GPT-4o</td><td>Muy alta</td><td>Media</td><td>$2.50 / $10 por 1M tokens</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">o4-mini</td><td>Alta</td><td>Rapida</td><td>$1.10 / $4.40 por 1M tokens</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">DeepSeek V3</td><td>Alta</td><td>Rapida</td><td>$0.27 / $1.10 por 1M tokens</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">DeepSeek R1</td><td>Alta (razonamiento)</td><td>Media</td><td>$0.55 / $2.19 por 1M tokens</td></tr>
+          </tbody>
+        </table>
+        <p class="text-xs text-gray-400 mt-3">Los precios son entrada/salida por millon de tokens. Gemini Flash siempre se usa para leer los PDFs (OCR). El solver elegido se usa para resolver ejercicios y evaluar respuestas.</p>
+      </div>
+    </section>
+
+    <!-- 10. Aprendizaje -->
+    <section id="aprendizaje">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">10. Aprendizaje de correcciones</h2>
+      <div class="bg-white rounded-lg border p-4 space-y-3 text-sm text-gray-700">
+        <p>Examinia <strong>aprende de tus correcciones</strong> para mejorar en futuras evaluaciones:</p>
+        <ol class="list-decimal list-inside space-y-2">
+          <li>Cuando editas una nota o explicacion en el detalle de un alumno, el sistema guarda que dijo la IA vs que corregiste tu.</li>
+          <li>Al usar <strong>"Recorregir todo"</strong> o en nuevas convocatorias de la misma asignatura, la IA recibe tus correcciones anteriores como ejemplos de referencia.</li>
+          <li>Esto permite que la IA no repita los mismos errores de puntuacion.</li>
+        </ol>
+        <p>No necesitas hacer nada especial: simplemente edita las notas como siempre y el aprendizaje es automatico.</p>
+      </div>
+    </section>
+
+    <!-- 11. Glosario -->
+    <section id="glosario">
+      <h2 class="text-lg font-bold text-gray-900 mb-3 border-b pb-2">11. Glosario</h2>
+      <div class="bg-white rounded-lg border p-4 text-sm">
+        <dl class="space-y-3">
+          <div><dt class="font-medium text-gray-800">Convocatoria</dt><dd class="text-gray-600">Un examen concreto para un grupo de alumnos. Contiene los PDFs, soluciones y resultados.</dd></div>
+          <div><dt class="font-medium text-gray-800">Solver</dt><dd class="text-gray-600">El modelo de IA que resuelve los ejercicios y evalua las respuestas de los alumnos.</dd></div>
+          <div><dt class="font-medium text-gray-800">Soluciones validadas</dt><dd class="text-gray-600">Las respuestas correctas que el profesor ha revisado y confirmado. La IA las usa como referencia para corregir.</dd></div>
+          <div><dt class="font-medium text-gray-800">Scoring instructions</dt><dd class="text-gray-600">Indicaciones de puntuacion por apartado extraidas del PDF del profesor (ej: "Analisis correcto: 0,25 pts").</dd></div>
+          <div><dt class="font-medium text-gray-800">Criterios de evaluacion (LOMLOE)</dt><dd class="text-gray-600">Codigos como 1.1, 2.1, etc. que vinculan cada apartado del examen con los criterios del curriculo. Permiten seguir el progreso del alumno por competencias.</dd></div>
+          <div><dt class="font-medium text-gray-800">Competencias clave</dt><dd class="text-gray-600">Las 8 competencias del curriculo LOMLOE: CCL, CP, STEM, CD, CPSAA, CC, CE, CCEC.</dd></div>
+          <div><dt class="font-medium text-gray-800">OCR</dt><dd class="text-gray-600">Reconocimiento optico de caracteres. La IA lee las respuestas manuscritas de los alumnos a partir de las imagenes del examen escaneado.</dd></div>
+          <div><dt class="font-medium text-gray-800">Recorregir todo</dt><dd class="text-gray-600">Borra las correcciones actuales y vuelve a corregir todos los examenes con las soluciones y criterios vigentes, incluyendo las correcciones que hayas hecho como referencia de aprendizaje.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+  </div>
+
+  <p class="text-center text-xs text-gray-400 mt-10 mb-4">
+    Examinia v{{ app_version }} &mdash; <a href="/" class="text-blue-500 hover:underline">Volver al inicio</a>
+  </p>
+
+</div>
+{% endblock %}

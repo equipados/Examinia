@@ -17,7 +17,7 @@
 
     <div class="grid grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1" for="course_level">Curso</label>
+        <label class="block text-sm font-medium text-gray-700 mb-1" for="course_level">Curso <span class="help-tip" data-help="Selecciona el curso para activar las competencias LOMLOE. Si eliges 2o Bach + Mates II, podrás asignar criterios de evaluación a cada apartado.">?</span></label>
         <select id="course_level" name="course_level"
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="">Sin especificar</option>
@@ -33,7 +33,7 @@
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-gray-700 mb-1" for="subject">Asignatura</label>
+      <label class="block text-sm font-medium text-gray-700 mb-1" for="subject">Asignatura <span class="help-tip" data-help="Si seleccionas una asignatura con currículo LOMLOE configurado (actualmente Matemáticas II), podrás vincular cada apartado del examen a criterios de evaluación y ver el progreso por competencias de cada alumno.">?</span></label>
       <select id="subject" name="subject"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
         <option value="">— Sin especificar —</option>
@@ -46,7 +46,7 @@
 
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1" for="max_total_points">
-        Puntuación máxima total
+        Puntuación máxima total <span class="help-tip" data-help="Si lo indicas (ej: 10), las notas se escalan a esta base. Si lo dejas vacío, se usan los puntos que aparezcan en el PDF del examen. Puedes cambiarlo después.">?</span>
       </label>
       <input id="max_total_points" name="max_total_points" type="number" step="0.5" min="1" max="100"
              placeholder="Ej: 10  (deja vacío para usar la del PDF)"
@@ -56,7 +56,7 @@
 
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1" for="weight">
-        Ponderación en la media
+        Ponderación en la media <span class="help-tip" data-help="Peso de esta prueba al calcular la media del alumno. Ej: si pones 2.0 y otra prueba tiene 1.0, esta vale el doble. Valor por defecto: 1.0.">?</span>
       </label>
       <input id="weight" name="weight" type="number" step="0.1" min="0" max="100"
              placeholder="1.0"
@@ -65,7 +65,7 @@
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-gray-700 mb-1" for="solver_provider">Modelo IA para resolver ejercicios</label>
+      <label class="block text-sm font-medium text-gray-700 mb-1" for="solver_provider">Modelo IA para resolver ejercicios <span class="help-tip" data-help="La IA que resuelve los ejercicios para generar las soluciones de referencia. Gemini Pro es el más preciso. DeepSeek R1 es el más barato con buen razonamiento. En modo Profesor (subir PDF con soluciones), este modelo solo se usa si la IA necesita evaluar respuestas.">?</span></label>
       <select id="solver_provider" name="solver_provider"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
         <option value="gemini-pro">Gemini 2.5 Pro — mayor precisión matemática</option>
@@ -79,7 +79,7 @@
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-gray-700 mb-1" for="grading_instructions">Instrucciones de corrección para la IA</label>
+      <label class="block text-sm font-medium text-gray-700 mb-1" for="grading_instructions">Instrucciones de corrección para la IA <span class="help-tip" data-help="Instrucciones que se envían a la IA en cada corrección. Úsalas para indicar criterios específicos: cómo valorar procedimiento vs resultado, qué errores penalizar, cuándo dar crédito parcial, etc. Se combinan con los criterios del PDF del profesor si existen.">?</span></label>
       <textarea id="grading_instructions" name="grading_instructions" rows="4"
                 placeholder="Ej: Valorar planteamiento correcto aunque el resultado final sea erróneo. Penalizar errores de signo con -0.5 pts. No dar puntuación parcial si no hay desarrollo..."
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
