@@ -65,6 +65,7 @@ class Submission(Base):
     incidents: Mapped[str | None] = mapped_column(Text)  # JSON list
     report_path: Mapped[str | None] = mapped_column(Text)
     processing_log: Mapped[str | None] = mapped_column(Text)  # JSON [{t, msg}]
+    cover_layout_json: Mapped[str | None] = mapped_column(Text)  # JSON: {nota_box, questions: [{id, bbox}]}
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
@@ -102,6 +103,7 @@ class PartResult(Base):
     incidents: Mapped[str | None] = mapped_column(Text)  # JSON list
     ai_awarded_points: Mapped[float | None] = mapped_column(Float)  # puntos originales de la IA (inmutable)
     ai_explanation: Mapped[str | None] = mapped_column(Text)        # explicación original de la IA (inmutable)
+    bbox_json: Mapped[str | None] = mapped_column(Text)             # JSON: {"x_pct":..., "y_pct":..., "w_pct":..., "h_pct":..., "page_number": N}
 
     question: Mapped[QuestionResult] = relationship("QuestionResult", back_populates="part_results")
 

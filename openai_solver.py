@@ -123,7 +123,7 @@ class OpenAISolver:
                         {"role": "user", "content": user},
                     ],
                     response_format={"type": "json_object"},
-                    temperature=0.1,
+                    temperature=0.0,
                     timeout=120,
                 )
                 return resp.choices[0].message.content or "", resp.usage
@@ -152,7 +152,7 @@ class OpenAISolver:
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
-                    temperature=0.2,
+                    temperature=0.1,
                     timeout=120,
                 )
                 return resp.choices[0].message.content or "", resp.usage

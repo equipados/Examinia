@@ -85,33 +85,36 @@ async def upload_pdfs(
 
     db.commit()
 
-    # Si no hay soluciones validadas todavía, lanzar extracción automática y redirigir a validación
-    # (solo en modo IA; en modo profesor se espera a que suba el PDF del profesor)
+    # Decidir siguiente paso según el estado de las soluciones
     from app.db_models import SessionSolution
-    solutions_exist = db.query(SessionSolution).filter(
+    validated_count = db.query(SessionSolution).filter(
         SessionSolution.session_id == session_id,
-    ).first() is not None
-
-    is_teacher_mode = session.solution_mode == "teacher"
-    if not solutions_exist and not is_teacher_mode:
-        scheduler.solve_questions_for_session(session_id, _db_path, _config_overrides)
-        return RedirectResponse(url=f"/sessions/{session_id}/solutions", status_code=status.HTTP_302_FOUND)
-
-    # Si ya hay soluciones validadas, encolar corrección directamente
-    all_validated = db.query(SessionSolution).filter(
+        SessionSolution.status.in_(["validated", "manual"]),
+    ).count()
+    unvalidated_count = db.query(SessionSolution).filter(
         SessionSolution.session_id == session_id,
         SessionSolution.status.notin_(["validated", "manual"]),
-    ).first() is None
+    ).count()
 
-    if all_validated:
-        subs = db.query(Submission).filter(
+    is_teacher_mode = session.solution_mode == "teacher"
+
+    if validated_count > 0 and unvalidated_count == 0:
+        # Todas las soluciones están validadas → encolar corrección y volver a la convocatoria
+        pending_subs = db.query(Submission).filter(
             Submission.session_id == session_id,
             Submission.status == "pending",
         ).all()
-        for sub in subs:
+        for sub in pending_subs:
             scheduler.enqueue(sub.id, _db_path, str(_upload_dir), _config_overrides)
+        return RedirectResponse(url=f"/sessions/{session_id}", status_code=status.HTTP_302_FOUND)
 
-    return RedirectResponse(url=f"/sessions/{session_id}/solutions", status_code=status.HTTP_302_FOUND)
+    if validated_count == 0 and unvalidated_count == 0 and not is_teacher_mode:
+        # No hay soluciones y modo IA → extraer soluciones automáticamente
+        scheduler.solve_questions_for_session(session_id, _db_path, _config_overrides)
+        return RedirectResponse(url=f"/sessions/{session_id}/solutions", status_code=status.HTTP_302_FOUND)
+
+    # Hay soluciones pendientes de validar, o modo profesor sin soluciones → ir a soluciones
+    return RedirectResponse(url=f"/sessions/{session_id}", status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/{submission_id}", response_class=HTMLResponse)
@@ -191,6 +194,31 @@ def download_pdf_report(
     )
 
 
+@router.get("/{submission_id}/annotated-pdf")
+def download_annotated_pdf(
+    submission_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Descarga el examen escaneado con las correcciones anotadas encima."""
+    from app.annotator import generate_annotated_pdf
+    sub = db.query(Submission).filter(Submission.id == submission_id).first()
+    if sub is None or sub.status != "done":
+        return HTMLResponse("Examen no disponible o no corregido", status_code=404)
+    session = sub.session
+    try:
+        pdf_bytes = generate_annotated_pdf(sub, session, _upload_dir)
+    except (FileNotFoundError, ValueError) as exc:
+        return HTMLResponse(f"Error generando PDF anotado: {exc}", status_code=500)
+    student_name = (sub.student.display_name if sub.student else sub.student_name) or "alumno"
+    filename = f"corregido_{student_name.replace(' ', '_')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/{submission_id}/reprocess")
 def reprocess(
     submission_id: int,
@@ -199,7 +227,7 @@ def reprocess(
 ) -> RedirectResponse:
     from app import scheduler
     sub = db.query(Submission).filter(Submission.id == submission_id).first()
-    if sub and sub.status not in ("pending", "processing"):
+    if sub and sub.status != "pending":
         sub.status = "pending"
         sub.error_message = None
         db.commit()

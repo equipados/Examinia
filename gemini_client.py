@@ -566,7 +566,7 @@ class GeminiClient:
         prompt: str,
         schema: type[T],
         image_paths: list[Path] | None = None,
-        temperature: float = 0.1,
+        temperature: float = 0.0,
         use_native_schema: bool = True,
         model_override: str | None = None,
         disable_thinking: bool = False,
@@ -619,7 +619,7 @@ class GeminiClient:
         prompt: str,
         schema: type[T],
         image_paths: list[Path] | None = None,
-        temperature: float = 0.1,
+        temperature: float = 0.0,
         model_override: str | None = None,
         disable_thinking: bool = False,
     ) -> T:
@@ -677,7 +677,7 @@ class GeminiClient:
                     raise RuntimeError(str(exc)) from exc
         raise RuntimeError("No se pudo obtener salida estructurada valida de Gemini")
 
-    def _generate_text(self, prompt: str, temperature: float = 0.3, model_override: str | None = None, disable_thinking: bool = False) -> str:
+    def _generate_text(self, prompt: str, temperature: float = 0.1, model_override: str | None = None, disable_thinking: bool = False) -> str:
         self._respect_rate_limit()
         config_kwargs: dict[str, object] = {"temperature": temperature}
         if disable_thinking:
@@ -700,7 +700,7 @@ class GeminiClient:
         return text.strip()
 
     def analyze_exam_page(self, image_path: Path, prompt: str, schema: type[T]) -> T:
-        return self._generate_structured(prompt=prompt, schema=schema, image_paths=[image_path], temperature=0.1)
+        return self._generate_structured(prompt=prompt, schema=schema, image_paths=[image_path], temperature=0.0)
 
     def extract_structured_exam_data(self, image_path: Path, source_file: str, page_number: int) -> PageExtraction:
         prompt = f"""
@@ -807,6 +807,14 @@ ENUNCIADOS:
 - Para cada apartado (a, b, c...): extrae su enunciado completo.
 - Si un ejercicio no tiene apartados, crea un unico apartado con part_id="single".
 
+UBICACIONES (para anotar correcciones sobre la hoja):
+- bbox en cada question: ubicacion del ENCABEZADO del ejercicio (numero + puntuacion),
+  en PORCENTAJE (0-100) relativo al tamano de la imagen.
+  x_pct = borde izquierdo, y_pct = borde superior, w_pct = ancho, h_pct = alto.
+  Solo el encabezado (ej: "1. (3p) Estudia la continuidad..."), no todo el ejercicio.
+- nota_box_bbox: ubicacion del cuadro NOTA/CALIFICACION si existe en la hoja
+  (normalmente arriba a la derecha). Si no hay cuadro de nota, devuelve null.
+
 OTROS DATOS:
 - Detecta nombre del alumno y modelo de examen si aparecen en el encabezado.
 - Detecta el curso: "1o_bachillerato" si pone 1o Bachillerato o similar,
@@ -836,6 +844,7 @@ Devuelve SOLO este formato de claves (sin claves extra):
         "question_id": "str",
         "statement": "str",
         "max_points": 0.0,
+        "bbox": {{"x_pct": 0.0, "y_pct": 0.0, "w_pct": 0.0, "h_pct": 0.0}},
         "parts": [
           {{
             "part_id": "str",
@@ -850,7 +859,8 @@ Devuelve SOLO este formato de claves (sin claves extra):
       }}
     ],
     "incidents": ["str"],
-    "extraction_confidence": 0.0
+    "extraction_confidence": 0.0,
+    "nota_box_bbox": {{"x_pct": 0.0, "y_pct": 0.0, "w_pct": 0.0, "h_pct": 0.0}}
   }}
 
 Metadatos de esta pagina:
@@ -875,6 +885,7 @@ Metadatos de esta pagina:
             questions=payload.questions,
             incidents=payload.incidents,
             extraction_confidence=payload.extraction_confidence,
+            nota_box_bbox=payload.nota_box_bbox,
         )
 
     def extract_student_answers(
@@ -902,6 +913,11 @@ Para cada ejercicio y apartado:
   ["f'(x) = 2x+3", "f'(2) = 7", "y - 5 = 7(x - 2)"]
   Si un paso es ilegible: "[ilegible]".
 - confidence: confianza en la transcripcion (0.0 a 1.0).
+- bbox: ubicacion aproximada de la respuesta del alumno en la imagen.
+  Coordenadas en PORCENTAJE (0-100) relativas al tamano de la imagen:
+  x_pct = borde izquierdo, y_pct = borde superior, w_pct = ancho, h_pct = alto.
+  Incluye todo el trabajo manuscrito del alumno para ese apartado.
+  Si no puedes determinar la ubicacion, devuelve null.
 
 Temas posibles: derivadas (regla cadena, producto, cociente), integrales (por partes,
 sustitucion), limites (L'Hopital), matrices/determinantes, sistemas Gauss/Cramer,
@@ -937,7 +953,8 @@ Devuelve SOLO este formato de claves (sin claves extra):
             "student_answer_raw": "str",
             "student_answer_normalized": "str|null",
             "steps_detected": ["str"],
-            "confidence": 0.0
+            "confidence": 0.0,
+            "bbox": {{"x_pct": 0.0, "y_pct": 0.0, "w_pct": 0.0, "h_pct": 0.0}}
           }}
         ]
       }}
@@ -1057,7 +1074,7 @@ Devuelve SOLO estas claves:
   "reasoning_summary": "str"
 }}
 """
-        return self._generate_structured(prompt=prompt, schema=GeminiAssessment, temperature=0.1, disable_thinking=True)
+        return self._generate_structured(prompt=prompt, schema=GeminiAssessment, temperature=0.0, disable_thinking=True)
 
     def solve_math_question(
         self,
@@ -1167,7 +1184,7 @@ Devuelve SOLO estas claves:
                 prompt=prompt,
                 schema=GeminiSolvedExercise,
                 image_paths=image_paths,
-                temperature=0.1,
+                temperature=0.0,
                 model_override=preferred_model,
             )
         except Exception as exc:
@@ -1182,7 +1199,7 @@ Devuelve SOLO estas claves:
                     prompt=prompt,
                     schema=GeminiSolvedExercise,
                     image_paths=image_paths,
-                    temperature=0.1,
+                    temperature=0.0,
                     model_override=self.model,
                 )
             raise
@@ -1211,7 +1228,7 @@ Requisitos:
 - Explica por que obtiene esa puntuacion.
 - Si procede, sugiere revision manual.
 """
-        return self._generate_text(prompt=prompt, temperature=0.2, disable_thinking=True)
+        return self._generate_text(prompt=prompt, temperature=0.1, disable_thinking=True)
 
     def extract_teacher_solutions_from_pages(
         self,
@@ -1266,7 +1283,7 @@ Devuelve JSON con esta estructura exacta:
             prompt=prompt,
             schema=TeacherSolutionsExtraction,
             image_paths=image_paths,
-            temperature=0.1,
+            temperature=0.0,
         )
 
     def suggest_criteria_for_exercises(
@@ -1321,7 +1338,7 @@ IMPORTANTE: Las claves deben ser exactamente las mismas que los ejercicios lista
 Responde SOLO con el JSON, sin texto adicional.
 """
         self._respect_rate_limit()
-        config = self._types.GenerateContentConfig(temperature=0.2)
+        config = self._types.GenerateContentConfig(temperature=0.0)
         contents = self._build_contents(prompt)
         response = self._client.models.generate_content(
             model=self.model,  # Flash is enough for this
@@ -1364,7 +1381,7 @@ Tarea: extrae la respuesta final de esta solución como texto matemático legibl
 - Responde SOLO con la respuesta matemática, sin explicaciones adicionales.
 """
         self._respect_rate_limit()
-        config = self._types.GenerateContentConfig(temperature=0.1)
+        config = self._types.GenerateContentConfig(temperature=0.0)
         contents = self._build_contents(prompt, [image_path] if image_path else None)
         response = self._client.models.generate_content(
             model=self.solver_model,

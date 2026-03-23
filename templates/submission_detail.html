@@ -228,10 +228,10 @@ function savePart(subId, partId) {
     Descargar informe .md
   </a>
   {% endif %}
-  {% if sub.status not in ("pending", "processing") %}
+  {% if sub.status != "pending" %}
   <form method="post" action="/submissions/{{ sub.id }}/reprocess">
     <button class="border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm transition">
-      Reprocesar
+      {% if sub.status == "processing" %}Reiniciar corrección{% else %}Reprocesar{% endif %}
     </button>
   </form>
   {% endif %}

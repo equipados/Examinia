@@ -226,6 +226,7 @@
 
 <!-- Aviso si hay exámenes esperando validación de soluciones (solo si NO se está corrigiendo ya) -->
 {% set grading_started = submissions | selectattr("status", "equalto", "processing") | list | length > 0 or done_count > 0 or error_count > 0 %}
+{% set processing_count = submissions | selectattr("status", "equalto", "processing") | list | length %}
 {% if pending > 0 and not grading_started %}
 <div class="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 mb-4 text-sm text-purple-800 flex items-center justify-between">
   <span>Hay <strong>{{ pending }}</strong> examen(es) en espera. Valida las soluciones IA antes de iniciar la corrección.</span>
@@ -235,6 +236,7 @@
   </a>
 </div>
 {% endif %}
+{# El banner "Continuar corrección" se muestra DESPUÉS del panel de log, solo si no hay panel activo #}
 
 <!-- Panel de log de corrección mientras hay exámenes procesando -->
 {% set processing_subs = submissions | selectattr("status", "in", ["processing", "pending"]) | list %}
@@ -305,8 +307,17 @@
     </div>
     {% endif %}
   </div>
-  <div class="px-4 py-1.5 bg-gray-800 border-t border-gray-700 text-xs text-gray-600 text-center">
-    Actualización automática cada 4 segundos
+  <div class="px-4 py-2 bg-gray-800 border-t border-gray-700 flex items-center justify-between">
+    <span class="text-xs text-gray-400">Actualización automática cada 4s</span>
+    <div class="flex items-center gap-2">
+      <span class="help-tip" data-help="Detiene las correcciones en curso, las marca como pendientes y las vuelve a encolar desde cero. Útil si una corrección se ha quedado bloqueada o quieres cambiar la configuración." style="color: #fca5a5;">?</span>
+      <form method="post" action="/sessions/{{ session.id }}/reset-stuck"
+            onsubmit="return confirm('¿Detener las correcciones en curso y reiniciarlas?\n\nLos exámenes en proceso se marcarán como pendientes y se volverán a encolar.')">
+        <button class="text-xs bg-red-800 hover:bg-red-700 text-red-200 px-3 py-1 rounded font-semibold transition">
+          Reiniciar
+        </button>
+      </form>
+    </div>
   </div>
 </div>
 <script>
@@ -391,6 +402,23 @@
   setTimeout(poll, 2000);
 })();
 </script>
+{% else %}
+{# No hay panel de corrección activo — mostrar banner si hay pendientes huérfanos #}
+{% if pending > 0 and grading_started %}
+{% set orphan_pending = submissions | selectattr("status", "equalto", "pending") | list | length %}
+{% if orphan_pending > 0 %}
+<div class="bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800 flex items-center justify-between">
+  <span>Hay <strong>{{ orphan_pending }}</strong> examen(es) pendiente(s) sin procesar.
+    <span class="help-tip" data-help="Esto ocurre cuando el servidor se reinició o la corrección se interrumpió. Pulsa el botón para reanudar la corrección de los exámenes que quedaron pendientes. Los ya corregidos no se tocan.">?</span>
+  </span>
+  <form method="post" action="/sessions/{{ session.id }}/reset-stuck">
+    <button class="bg-amber-600 hover:bg-amber-500 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition ml-4 shrink-0">
+      Continuar corrección →
+    </button>
+  </form>
+</div>
+{% endif %}
+{% endif %}
 {% endif %}
 
 <!-- Stats summary -->

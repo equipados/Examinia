@@ -34,6 +34,16 @@ class PageImage(BaseModel):
     image_path: Path
 
 
+class AnswerBoundingBox(BaseModel):
+    """Ubicación aproximada de una respuesta en la imagen, en porcentaje (0-100)."""
+    model_config = ConfigDict(extra="forbid")
+
+    x_pct: float = Field(ge=0.0, le=100.0)
+    y_pct: float = Field(ge=0.0, le=100.0)
+    w_pct: float = Field(ge=0.0, le=100.0)
+    h_pct: float = Field(ge=0.0, le=100.0)
+
+
 class ExtractedPart(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -44,6 +54,7 @@ class ExtractedPart(BaseModel):
     student_answer_normalized: str | None = None
     steps_detected: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    bbox: AnswerBoundingBox | None = None
 
     @field_validator("part_id", mode="before")
     @classmethod
@@ -69,6 +80,7 @@ class ExtractedQuestion(BaseModel):
     statement: str | None = None
     max_points: float | None = None
     parts: list[ExtractedPart] = Field(default_factory=list)
+    bbox: AnswerBoundingBox | None = None
 
     @field_validator("question_id", mode="before")
     @classmethod
@@ -103,6 +115,7 @@ class LLMPageExtraction(BaseModel):
     questions: list[ExtractedQuestion] = Field(default_factory=list)
     incidents: list[str] = Field(default_factory=list)
     extraction_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    nota_box_bbox: AnswerBoundingBox | None = None
 
 
 class PageExtraction(BaseModel):
@@ -124,6 +137,7 @@ class PageExtraction(BaseModel):
     questions: list[ExtractedQuestion] = Field(default_factory=list)
     incidents: list[str] = Field(default_factory=list)
     extraction_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    nota_box_bbox: AnswerBoundingBox | None = None
 
 
 class ExamSubmission(BaseModel):

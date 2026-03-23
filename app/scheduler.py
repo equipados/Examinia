@@ -9,9 +9,16 @@ from pathlib import Path
 
 from loguru import logger
 
-_executor = ThreadPoolExecutor(max_workers=2)
+_executor = ThreadPoolExecutor(max_workers=4)
 _solving_sessions: set[int] = set()  # guard against concurrent AI-solve runs per session
 _teacher_sessions: set[int] = set()  # guard against concurrent teacher-extraction runs per session
+
+
+def reset_executor() -> None:
+    """Recrea el executor para cancelar workers atascados."""
+    global _executor
+    _executor.shutdown(wait=False, cancel_futures=True)
+    _executor = ThreadPoolExecutor(max_workers=4)
 
 _SOLVER_GEMINI_MODELS = {
     "gemini-flash": "gemini-2.5-flash",
@@ -188,6 +195,7 @@ class _CachingGeminiWrapper:
         self._session_id = session_id
         self._db = db
         self._cache: dict[tuple[str, str], object] = self._load_cache()
+        self._lock = __import__("threading").Lock()
 
     def _load_cache(self) -> dict:
         from app.db_models import SessionSolution
@@ -223,9 +231,10 @@ class _CachingGeminiWrapper:
                             exam_model: str | None = None, course_level: str | None = None,
                             image_paths=None, read_from_image: bool = False):
         key = (question_id, part_id)
-        if key in self._cache:
-            logger.debug(f"      [{question_id}.{part_id}] Usando solución IA cacheada (sin llamada API)")
-            return self._cache[key]
+        with self._lock:
+            if key in self._cache:
+                logger.debug(f"      [{question_id}.{part_id}] Usando solución IA cacheada (sin llamada API)")
+                return self._cache[key]
 
         # Usar _solver independiente si está configurado (puede ser OpenAI o Gemini)
         _active_solver = getattr(self, "_solver", None) or self._client
@@ -240,7 +249,8 @@ class _CachingGeminiWrapper:
             read_from_image=read_from_image,
         )
         if result.can_solve:
-            self._cache[key] = result
+            with self._lock:
+                self._cache[key] = result
             self._save_to_db(question_id, part_id, result)
         return result
 
@@ -379,6 +389,36 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
             ),
         )
 
+        # 3b. Build bbox map (question_id, part_id) → {x_pct, y_pct, w_pct, h_pct, page_number}
+        bbox_map: dict[tuple[str, str], dict] = {}
+        cover_layout: dict | None = None
+        for pe in page_extractions:
+            # Guardar layout de portada (posiciones de ejercicios y cuadro NOTA)
+            if pe.page_role == "cover":
+                cover_q = []
+                for q in pe.questions:
+                    qdata: dict = {"question_id": q.question_id}
+                    if q.bbox:
+                        qdata["bbox"] = {"x_pct": q.bbox.x_pct, "y_pct": q.bbox.y_pct,
+                                         "w_pct": q.bbox.w_pct, "h_pct": q.bbox.h_pct}
+                    cover_q.append(qdata)
+                cover_layout = {"questions": cover_q, "page_number": pe.page_number}
+                if pe.nota_box_bbox:
+                    cover_layout["nota_box"] = {
+                        "x_pct": pe.nota_box_bbox.x_pct, "y_pct": pe.nota_box_bbox.y_pct,
+                        "w_pct": pe.nota_box_bbox.w_pct, "h_pct": pe.nota_box_bbox.h_pct,
+                    }
+            for q in pe.questions:
+                for p in q.parts:
+                    if p.bbox:
+                        bbox_map[(q.question_id, p.part_id)] = {
+                            "x_pct": p.bbox.x_pct, "y_pct": p.bbox.y_pct,
+                            "w_pct": p.bbox.w_pct, "h_pct": p.bbox.h_pct,
+                            "page_number": pe.page_number,
+                        }
+        if bbox_map:
+            _step(f"Bounding boxes detectados: {len(bbox_map)} apartado(s)")
+
         # 4. Build submission
         exam_submission = build_submission_from_pdf(page_extractions, pdf_path.name)
         exam_submission = normalize_submission_structure(exam_submission)
@@ -497,6 +537,48 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
             n_ex = sum(len(v) for v in _correction_dict.values())
             _step(f"Aplicando {n_ex} corrección(es) del profesor como referencia de aprendizaje.")
 
+        # Pre-resolver todos los apartados en paralelo (acelera solvers lentos como DeepSeek)
+        if cfg.enable_ai_solver:
+            _to_solve = []
+            for q in exam_submission.questions:
+                statement_q = (q.statement or "").strip()
+                for p in q.parts:
+                    key = (q.question_id, p.part_id)
+                    if key in gemini._cache:
+                        continue  # ya cacheado (solución del profesor o IA previa)
+                    statement_p = (p.statement or "").strip()
+                    # Combinar enunciado de pregunta + apartado para no perder contexto
+                    # Ej: "Resuelve estas derivadas" + "f(x) = x^2 + 3x"
+                    if statement_p and statement_q and statement_p != statement_q:
+                        full_stmt = f"{statement_q}\n\nApartado {p.part_id}: {statement_p}"
+                    else:
+                        full_stmt = statement_p or statement_q
+                    if full_stmt:
+                        _to_solve.append((q.question_id, p.part_id, full_stmt))
+            if _to_solve:
+                _step(f"Pre-resolviendo {len(_to_solve)} apartado(s) en paralelo con {_solver_label}...")
+                from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed
+                def _solve_one(qid, pid, stmt):
+                    try:
+                        return (qid, pid, gemini.solve_math_question(
+                            question_statement=stmt,
+                            question_id=qid, part_id=pid,
+                            exam_model=exam_submission.exam_model,
+                            course_level=exam_submission.course_level,
+                        ))
+                    except Exception as exc:
+                        logger.warning(f"Error pre-resolviendo {qid}.{pid}: {exc}")
+                        return (qid, pid, None)
+                with _TPE(max_workers=4) as pool:
+                    futures = [pool.submit(_solve_one, qid, pid, stmt) for qid, pid, stmt in _to_solve]
+                    done_count = 0
+                    for f in as_completed(futures):
+                        done_count += 1
+                        qid, pid, res = f.result()
+                        status = "OK" if res and res.can_solve else "sin solución"
+                        _step(f"  Resuelto {qid}.{pid} ({status}) [{done_count}/{len(_to_solve)}]")
+                _step(f"Pre-resolución completada — {len(_to_solve)} apartado(s)")
+
         result = grade_exam(
             submission=exam_submission,
             solution_bank=bank,
@@ -528,6 +610,7 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
             db.add(qr)
             db.flush()
             for p in q.parts:
+                _bbox_data = bbox_map.get((q.question_id, p.part_id))
                 pr = PartResult(
                     question_id_fk=qr.id,
                     part_id=p.part_id,
@@ -540,6 +623,7 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
                     incidents=json.dumps(p.incidents, ensure_ascii=False),
                     ai_awarded_points=p.awarded_points,
                     ai_explanation=p.explanation,
+                    bbox_json=json.dumps(_bbox_data, ensure_ascii=False) if _bbox_data else None,
                 )
                 db.add(pr)
 
@@ -550,6 +634,7 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
         submission.max_total_points = result.max_total_points
         submission.incidents = json.dumps(result.incidents, ensure_ascii=False)
         submission.report_path = result.report_path
+        submission.cover_layout_json = json.dumps(cover_layout, ensure_ascii=False) if cover_layout else None
         submission.status = "done"
         submission.processed_at = datetime.now(timezone.utc)
         _link_student(db, submission)

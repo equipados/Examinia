@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-APP_VERSION = "1.9.1"
+APP_VERSION = "2.0.0"
 
 from dotenv import load_dotenv
 from fastapi import FastAPI

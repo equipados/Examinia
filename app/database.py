@@ -108,6 +108,22 @@ def init_db(db_path: Path = Path("corrector.db")) -> None:
             except OperationalError:
                 pass
 
+    # Migration: add cover_layout_json to submissions (v2.0.0)
+    with _engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE submissions ADD COLUMN cover_layout_json TEXT"))
+            conn.commit()
+        except OperationalError:
+            pass
+
+    # Migration: add bbox_json to part_results (v2.0.0)
+    with _engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE part_results ADD COLUMN bbox_json TEXT"))
+            conn.commit()
+        except OperationalError:
+            pass
+
     _backfill_students(_engine)
 
 

@@ -90,4 +90,4 @@ def format_page_range(pages: Iterable[int]) -> str:
 
 
 def round_points(value: float) -> float:
-    return round(float(value) + 1e-9, 2)
+    return round(float(value), 2)

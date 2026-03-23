@@ -275,6 +275,201 @@ def decide_part_grade(
     )
 
 
+def _grade_one_part(
+    question,
+    part,
+    submission: ExamSubmission,
+    solution_bank: SolutionBank,
+    gemini_client,
+    low_confidence_threshold: float,
+    strict_mode: bool,
+    allow_ai_solver: bool,
+    ai_solver_min_confidence: float,
+    evaluation_criteria: str | None,
+    correction_examples: dict[tuple[str, str], list[dict]] | None,
+) -> tuple[PartGrade, list[str]]:
+    """Corrige un apartado individual. Devuelve (PartGrade, incidents).
+
+    Thread-safe: no modifica estado compartido.
+    """
+    incidents: list[str] = []
+    label = f"{question.question_id}.{part.part_id}"
+    base_template = solution_bank.find(question.question_id, part.part_id, exam_model=submission.exam_model)
+    template = base_template.model_copy(deep=True) if base_template is not None else None
+    part_max = round_points(
+        part.max_points if part.max_points is not None else ((template.max_points if template else 0.0))
+    )
+
+    _part_stmt = (part.statement or "").strip()
+    _q_stmt = (question.statement or "").strip()
+    if _part_stmt and _q_stmt and _part_stmt != _q_stmt:
+        statement_text = f"{_q_stmt}\n\nApartado {part.part_id}: {_part_stmt}"
+    else:
+        statement_text = _part_stmt or _q_stmt
+    ai_solution: GeminiSolvedExercise | None = None
+    if allow_ai_solver and statement_text:
+        try:
+            ai_solution = gemini_client.solve_math_question(
+                question_statement=statement_text,
+                question_id=question.question_id,
+                part_id=part.part_id,
+                exam_model=submission.exam_model,
+                course_level=submission.course_level,
+            )
+            if ai_solution.can_solve and ai_solution.confidence > 0.0:
+                if template is None:
+                    template = _build_effective_template_from_ai_solution(
+                        question_id=question.question_id,
+                        part_id=part.part_id,
+                        part_max=part_max,
+                        ai_solution=ai_solution,
+                    )
+                    if "validada por el profesor" not in (ai_solution.notes or ""):
+                        incidents.append(
+                            f"Solución al ejercicio {question.question_id}.{part.part_id} generada automáticamente por IA (modo IA activo)."
+                        )
+                else:
+                    template = _enrich_template_with_ai_solution(template, ai_solution)
+                if ai_solution.confidence < ai_solver_min_confidence:
+                    incidents.append(
+                        f"La IA resolvió el ejercicio {question.question_id}.{part.part_id} con baja confianza "
+                        f"({ai_solution.confidence:.2f}); resultado usado igualmente."
+                    )
+            else:
+                incidents.append(
+                    f"La IA no pudo resolver el ejercicio {question.question_id}.{part.part_id}; "
+                    "la corrección se realizó sin solución de referencia."
+                )
+        except Exception as exc:
+            incidents.append(
+                f"Fallo resolviendo enunciado con IA en {question.question_id}.{part.part_id}: {exc}"
+            )
+
+    has_student_work = bool((part.student_answer_raw or "").strip()) or bool(part.steps_detected)
+
+    if not has_student_work:
+        return PartGrade(
+            question_id=question.question_id,
+            part_id=part.part_id,
+            column_id=part_column_id(question.question_id, part.part_id),
+            max_points=part_max,
+            awarded_points=0.0,
+            status="incorrecto",
+            detected_answer=part.student_answer_raw,
+            normalized_answer=part.student_answer_normalized,
+            steps_observed=part.steps_detected,
+            explanation="No aparece respuesta válida para este apartado. No se concede puntuación.",
+            incidents=[],
+        ), incidents
+
+    if template is None:
+        if part_max == 0.0:
+            incidents.append(
+                f"No hay plantilla de solucion para ejercicio {question.question_id}.{part.part_id}; revision manual."
+            )
+            return PartGrade(
+                question_id=question.question_id,
+                part_id=part.part_id,
+                column_id=part_column_id(question.question_id, part.part_id),
+                max_points=part_max,
+                awarded_points=0.0,
+                status="revision_manual",
+                detected_answer=part.student_answer_raw,
+                normalized_answer=part.student_answer_normalized,
+                steps_observed=part.steps_detected,
+                explanation="Sin plantilla de solucion ni puntuacion conocida.",
+                incidents=["Sin plantilla de solucion"],
+            ), incidents
+        template = SolutionTemplate(
+            exercise=question.question_id,
+            part=part.part_id,
+            expected_final_answer="",
+            max_points=part_max,
+        )
+
+    part_max = round_points(part.max_points if part.max_points is not None else (template.max_points or 0.0))
+    answer_for_assessment = (part.student_answer_raw or "").strip() or "; ".join(part.steps_detected)
+
+    logger.debug(f"      [{label}] Evaluando respuesta con Gemini...")
+    try:
+        _part_scoring = template.scoring_instructions if template else None
+        _part_corrections = (correction_examples or {}).get(
+            (question.question_id, part.part_id), []
+        )
+        assessment = gemini_client.assess_math_answer(
+            solution=template,
+            extracted_part=part,
+            question_statement=question.statement,
+            course_level=submission.course_level,
+            evaluation_criteria=evaluation_criteria,
+            scoring_instructions=_part_scoring,
+            correction_examples=_part_corrections[:5] if _part_corrections else None,
+        )
+    except Exception as exc:
+        incidents.append(
+            f"Fallo de evaluacion Gemini en {question.question_id}.{part.part_id}: {exc}. Revision manual."
+        )
+        assessment = GeminiAssessment(
+            classification="revision_manual",
+            result_correct=None,
+            procedure_quality="not_enough_info",
+            detected_error_type="other",
+            confidence=0.0,
+            reasoning_summary="Error de API en evaluacion automatica.",
+        )
+
+    decision = decide_part_grade(
+        max_points=part_max,
+        answer_raw=answer_for_assessment,
+        template=template,
+        assessment=assessment,
+        low_confidence_threshold=low_confidence_threshold,
+        strict_mode=strict_mode,
+    )
+
+    logger.info(
+        f"      [{label}] {decision.status.upper()} — {decision.awarded_points:.2f}/{part_max:.2f} pts"
+    )
+    try:
+        feedback = gemini_client.generate_feedback_explanation(
+            student_answer=answer_for_assessment,
+            expected_answer=template.expected_final_answer,
+            reasoning_summary=f"{assessment.reasoning_summary} | {decision.rationale}",
+            status=decision.status,
+            awarded_points=decision.awarded_points,
+            max_points=part_max,
+        )
+    except Exception:
+        feedback = decision.rationale
+
+    part_incidents: list[str] = []
+    if assessment.confidence < low_confidence_threshold:
+        part_incidents.append(
+            f"Confianza de evaluacion baja ({assessment.confidence:.2f}) en {question.question_id}.{part.part_id}."
+        )
+    if ai_solution is not None and ai_solution.can_solve and ai_solution.confidence < ai_solver_min_confidence:
+        part_incidents.append(
+            f"Solucion IA desde enunciado con baja confianza "
+            f"({ai_solution.confidence:.2f}); usada igualmente."
+        )
+    if decision.status == "revision_manual":
+        part_incidents.append("Apartado recomendado para revision manual.")
+
+    return PartGrade(
+        question_id=question.question_id,
+        part_id=part.part_id,
+        column_id=part_column_id(question.question_id, part.part_id),
+        max_points=part_max,
+        awarded_points=decision.awarded_points,
+        status=decision.status,
+        detected_answer=part.student_answer_raw,
+        normalized_answer=part.student_answer_normalized,
+        steps_observed=part.steps_detected,
+        explanation=feedback,
+        incidents=part_incidents,
+    ), incidents
+
+
 def grade_exam(
     submission: ExamSubmission,
     solution_bank: SolutionBank,
@@ -286,204 +481,61 @@ def grade_exam(
     evaluation_criteria: str | None = None,
     correction_examples: dict[tuple[str, str], list[dict]] | None = None,
 ) -> ExamGradeResult:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     question_grades: list[QuestionGrade] = []
     incidents = list(submission.incidents)
     student_name = submission.student_name or f"alumno_provisional_{submission.exam_id.split('::')[-1]}"
 
-    total_questions = len(submission.questions)
-    for q_idx, question in enumerate(submission.questions, start=1):
+    # Recopilar todos los apartados con su contexto
+    all_tasks: list[tuple] = []  # (question, part, order_idx)
+    for question in submission.questions:
+        for part in question.parts:
+            all_tasks.append((question, part, len(all_tasks)))
+
+    total_parts = len(all_tasks)
+    logger.info(f"    Corrigiendo {total_parts} apartado(s) en paralelo...")
+
+    # Ejecutar correcciones en paralelo (max 4 hilos para no saturar la API)
+    part_results: dict[int, tuple[PartGrade, list[str]]] = {}
+
+    def _do_grade(idx, question, part):
+        return idx, _grade_one_part(
+            question=question,
+            part=part,
+            submission=submission,
+            solution_bank=solution_bank,
+            gemini_client=gemini_client,
+            low_confidence_threshold=low_confidence_threshold,
+            strict_mode=strict_mode,
+            allow_ai_solver=allow_ai_solver,
+            ai_solver_min_confidence=ai_solver_min_confidence,
+            evaluation_criteria=evaluation_criteria,
+            correction_examples=correction_examples,
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [
+            pool.submit(_do_grade, idx, question, part)
+            for question, part, idx in all_tasks
+        ]
+        done_count = 0
+        for f in as_completed(futures):
+            done_count += 1
+            idx, (pg, inc) = f.result()
+            part_results[idx] = (pg, inc)
+            logger.info(f"      [{pg.question_id}.{pg.part_id}] {pg.status.upper()} — "
+                        f"{pg.awarded_points:.2f}/{pg.max_points:.2f} pts [{done_count}/{total_parts}]")
+
+    # Reconstruir resultados en orden original agrupados por pregunta
+    task_idx = 0
+    for question in submission.questions:
         part_grades: list[PartGrade] = []
-        total_parts = len(question.parts)
-        logger.info(f"    Ejercicio {question.question_id} ({q_idx}/{total_questions}) — {total_parts} apartado(s)")
-        for p_idx, part in enumerate(question.parts, start=1):
-            label = f"{question.question_id}.{part.part_id}"
-            base_template = solution_bank.find(question.question_id, part.part_id, exam_model=submission.exam_model)
-            template = base_template.model_copy(deep=True) if base_template is not None else None
-            part_max = round_points(
-                part.max_points if part.max_points is not None else ((template.max_points if template else 0.0))
-            )
-
-            statement_text = (part.statement or "").strip() or (question.statement or "").strip()
-            ai_solution: GeminiSolvedExercise | None = None
-            if allow_ai_solver and statement_text:
-                logger.debug(f"      [{label}] Resolviendo enunciado con IA ({p_idx}/{total_parts})...")
-                try:
-                    ai_solution = gemini_client.solve_math_question(
-                        question_statement=statement_text,
-                        question_id=question.question_id,
-                        part_id=part.part_id,
-                        exam_model=submission.exam_model,
-                        course_level=submission.course_level,
-                    )
-                    if ai_solution.can_solve and ai_solution.confidence > 0.0:
-                        if template is None:
-                            template = _build_effective_template_from_ai_solution(
-                                question_id=question.question_id,
-                                part_id=part.part_id,
-                                part_max=part_max,
-                                ai_solution=ai_solution,
-                            )
-                            # Distinguir si vino de caché del profesor o fue generada por IA
-                            if "validada por el profesor" not in (ai_solution.notes or ""):
-                                incidents.append(
-                                    f"Solución al ejercicio {question.question_id}.{part.part_id} generada automáticamente por IA (modo IA activo)."
-                                )
-                        else:
-                            template = _enrich_template_with_ai_solution(template, ai_solution)
-                        if ai_solution.confidence < ai_solver_min_confidence:
-                            incidents.append(
-                                (
-                                    f"La IA resolvió el ejercicio {question.question_id}.{part.part_id} con baja confianza "
-                                    f"({ai_solution.confidence:.2f}); resultado usado igualmente."
-                                )
-                            )
-                    else:
-                        incidents.append(
-                            (
-                                f"La IA no pudo resolver el ejercicio {question.question_id}.{part.part_id}; "
-                                "la corrección se realizó sin solución de referencia."
-                            )
-                        )
-                except Exception as exc:
-                    incidents.append(
-                        f"Fallo resolviendo enunciado con IA en {question.question_id}.{part.part_id}: {exc}"
-                    )
-
-            has_student_work = bool((part.student_answer_raw or "").strip()) or bool(part.steps_detected)
-
-            if not has_student_work:
-                part_grades.append(
-                    PartGrade(
-                        question_id=question.question_id,
-                        part_id=part.part_id,
-                        column_id=part_column_id(question.question_id, part.part_id),
-                        max_points=part_max,
-                        awarded_points=0.0,
-                        status="incorrecto",
-                        detected_answer=part.student_answer_raw,
-                        normalized_answer=part.student_answer_normalized,
-                        steps_observed=part.steps_detected,
-                        explanation="No aparece respuesta válida para este apartado. No se concede puntuación.",
-                        incidents=[],
-                    )
-                )
-                continue
-
-            if template is None:
-                if part_max == 0.0:
-                    incidents.append(
-                        f"No hay plantilla de solucion para ejercicio {question.question_id}.{part.part_id}; revision manual."
-                    )
-                    part_grades.append(
-                        PartGrade(
-                            question_id=question.question_id,
-                            part_id=part.part_id,
-                            column_id=part_column_id(question.question_id, part.part_id),
-                            max_points=part_max,
-                            awarded_points=0.0,
-                            status="revision_manual",
-                            detected_answer=part.student_answer_raw,
-                            normalized_answer=part.student_answer_normalized,
-                            steps_observed=part.steps_detected,
-                            explanation="Sin plantilla de solucion ni puntuacion conocida.",
-                            incidents=["Sin plantilla de solucion"],
-                        )
-                    )
-                    continue
-                template = SolutionTemplate(
-                    exercise=question.question_id,
-                    part=part.part_id,
-                    expected_final_answer="",
-                    max_points=part_max,
-                )
-
-            part_max = round_points(part.max_points if part.max_points is not None else (template.max_points or 0.0))
-            answer_for_assessment = (part.student_answer_raw or "").strip() or "; ".join(part.steps_detected)
-
-            logger.debug(f"      [{label}] Evaluando respuesta con Gemini ({p_idx}/{total_parts})...")
-            try:
-                # Indicaciones de puntuación específicas del apartado (si existen)
-                _part_scoring = template.scoring_instructions if template else None
-                _part_corrections = (correction_examples or {}).get(
-                    (question.question_id, part.part_id), []
-                )
-                assessment = gemini_client.assess_math_answer(
-                    solution=template,
-                    extracted_part=part,
-                    question_statement=question.statement,
-                    course_level=submission.course_level,
-                    evaluation_criteria=evaluation_criteria,
-                    scoring_instructions=_part_scoring,
-                    correction_examples=_part_corrections[:5] if _part_corrections else None,
-                )
-            except Exception as exc:
-                incidents.append(
-                    f"Fallo de evaluacion Gemini en {question.question_id}.{part.part_id}: {exc}. Revision manual."
-                )
-                assessment = GeminiAssessment(
-                    classification="revision_manual",
-                    result_correct=None,
-                    procedure_quality="not_enough_info",
-                    detected_error_type="other",
-                    confidence=0.0,
-                    reasoning_summary="Error de API en evaluacion automatica.",
-                )
-
-            decision = decide_part_grade(
-                max_points=part_max,
-                answer_raw=answer_for_assessment,
-                template=template,
-                assessment=assessment,
-                low_confidence_threshold=low_confidence_threshold,
-                strict_mode=strict_mode,
-            )
-
-            logger.info(
-                f"      [{label}] {decision.status.upper()} — {decision.awarded_points:.2f}/{part_max:.2f} pts"
-            )
-            logger.debug(f"      [{label}] Generando feedback para el alumno...")
-            try:
-                feedback = gemini_client.generate_feedback_explanation(
-                    student_answer=answer_for_assessment,
-                    expected_answer=template.expected_final_answer,
-                    reasoning_summary=f"{assessment.reasoning_summary} | {decision.rationale}",
-                    status=decision.status,
-                    awarded_points=decision.awarded_points,
-                    max_points=part_max,
-                )
-            except Exception:
-                feedback = decision.rationale
-
-            part_incidents: list[str] = []
-            if assessment.confidence < low_confidence_threshold:
-                part_incidents.append(
-                    f"Confianza de evaluacion baja ({assessment.confidence:.2f}) en {question.question_id}.{part.part_id}."
-                )
-            if ai_solution is not None and ai_solution.can_solve and ai_solution.confidence < ai_solver_min_confidence:
-                part_incidents.append(
-                    (
-                        "Solucion IA desde enunciado con baja confianza "
-                        f"({ai_solution.confidence:.2f}); usada igualmente."
-                    )
-                )
-            if decision.status == "revision_manual":
-                part_incidents.append("Apartado recomendado para revision manual.")
-
-            part_grades.append(
-                PartGrade(
-                    question_id=question.question_id,
-                    part_id=part.part_id,
-                    column_id=part_column_id(question.question_id, part.part_id),
-                    max_points=part_max,
-                    awarded_points=decision.awarded_points,
-                    status=decision.status,
-                    detected_answer=part.student_answer_raw,
-                    normalized_answer=part.student_answer_normalized,
-                    steps_observed=part.steps_detected,
-                    explanation=feedback,
-                    incidents=part_incidents,
-                )
-            )
+        for _part in question.parts:
+            pg, inc = part_results[task_idx]
+            part_grades.append(pg)
+            incidents.extend(inc)
+            task_idx += 1
 
         q_max = round_points(sum(part.max_points for part in part_grades))
         q_awarded = round_points(sum(part.awarded_points for part in part_grades))

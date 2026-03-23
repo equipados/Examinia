@@ -127,13 +127,20 @@ def send_student_report_email(
     student_name: str,
     session_name: str,
     combined_pdf: bytes,
+    annotated_pdf: bytes | None = None,
 ) -> bool:
-    """Envía al alumno un único PDF con informe de corrección + examen escaneado."""
+    """Envía al alumno el informe de corrección y opcionalmente el examen corregido anotado."""
     try:
+        has_annotated = annotated_pdf is not None
+        extra_line = (
+            "<p>Incluimos también tu examen con las correcciones anotadas directamente sobre tus respuestas.</p>"
+            if has_annotated else ""
+        )
         html = f"""
         <div style="font-family:system-ui,sans-serif;max-width:600px;margin:0 auto">
             <p>Hola {student_name},</p>
             <p>Adjuntamos el informe de corrección de la prueba <strong>{session_name}</strong>.</p>
+            {extra_line}
             <p style="color:#9ca3af;font-size:12px;margin-top:24px">
                 Enviado automáticamente por Examinia.
             </p>
@@ -148,6 +155,11 @@ def send_student_report_email(
         att = MIMEApplication(combined_pdf, _subtype="pdf")
         att.add_header("Content-Disposition", "attachment", filename=f"informe_{safe_name}.pdf")
         msg.attach(att)
+
+        if annotated_pdf:
+            att2 = MIMEApplication(annotated_pdf, _subtype="pdf")
+            att2.add_header("Content-Disposition", "attachment", filename=f"corregido_{safe_name}.pdf")
+            msg.attach(att2)
 
         return _smtp_send(msg, to_email)
 

@@ -248,6 +248,39 @@ def start_grading(
     return RedirectResponse(url=f"/sessions/{session_id}", status_code=status.HTTP_302_FOUND)
 
 
+@router.post("/{session_id}/reset-stuck")
+def reset_stuck(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RedirectResponse:
+    """Resetea submissions atascadas, recrea el pool de workers y reencola."""
+    from app import scheduler
+    from app.routers.submissions import _upload_dir
+
+    # Cancelar workers atascados
+    scheduler.reset_executor()
+
+    stuck = db.query(Submission).filter(
+        Submission.session_id == session_id,
+        Submission.status == "processing",
+    ).all()
+    for sub in stuck:
+        sub.status = "pending"
+        sub.error_message = None
+    db.commit()
+
+    # Reencolar todos los pending (incluidos los recién reseteados)
+    pending = db.query(Submission).filter(
+        Submission.session_id == session_id,
+        Submission.status == "pending",
+    ).all()
+    for sub in pending:
+        scheduler.enqueue(sub.id, _db_path, str(_upload_dir), _config_overrides)
+
+    return RedirectResponse(url=f"/sessions/{session_id}", status_code=status.HTTP_302_FOUND)
+
+
 @router.post("/{session_id}/regrade-all")
 def regrade_all(
     session_id: int,
@@ -260,7 +293,7 @@ def regrade_all(
 
     subs = db.query(Submission).filter(
         Submission.session_id == session_id,
-        Submission.status.in_(["done", "error"]),
+        Submission.status.in_(["done", "error", "processing"]),
     ).all()
 
     for sub in subs:

@@ -113,7 +113,13 @@
           <li>Asigna puntuacion segun: resultado correcto, calidad del procedimiento, errores detectados</li>
           <li>Si subiste un PDF del profesor con indicaciones de puntuacion por apartado, la IA las aplica con prioridad maxima</li>
           <li>El progreso se muestra en tiempo real en la pantalla de la convocatoria</li>
+          <li>Los apartados se corrigen <strong>en paralelo</strong> (hasta 4 a la vez) para mayor velocidad</li>
         </ul>
+        <div class="bg-amber-50 rounded-lg p-3 mt-2 border border-amber-200">
+          <p class="font-medium text-amber-900">Si la correccion se interrumpe</p>
+          <p class="text-amber-700">Si el servidor se reinicia o la correccion se corta a mitad, los examenes que estaban procesandose quedan como pendientes. Veras un aviso amarillo con el boton <strong>"Continuar correccion"</strong> para reanudar donde se quedo. Los examenes ya corregidos no se tocan.</p>
+          <p class="text-amber-700 mt-1">Tambien puedes usar el boton <strong>"Detener y reiniciar"</strong> en el panel de progreso para forzar el reinicio si algo se queda bloqueado.</p>
+        </div>
       </div>
     </section>
 
@@ -143,7 +149,8 @@
         <ul class="list-disc list-inside space-y-1">
           <li><strong>Exportar Excel:</strong> descarga un archivo .xlsx con todas las notas de la convocatoria</li>
           <li><strong>Descargar informes PDF:</strong> ZIP con un informe PDF por alumno</li>
-          <li><strong>Enviar informes:</strong> envia por email a cada alumno su informe PDF + examen escaneado (requiere email configurado en el alumno y SMTP en Perfil)</li>
+          <li><strong>Descargar examen corregido:</strong> PDF con las correcciones anotadas directamente sobre las paginas escaneadas del alumno, como si un profesor hubiera corregido con boligrafo rojo (fuente manuscrita, marcas de estado, puntuacion por apartado y nota total)</li>
+          <li><strong>Enviar informes:</strong> envia por email a cada alumno su informe PDF + examen corregido anotado (requiere email configurado en el alumno y SMTP en Perfil)</li>
         </ul>
       </div>
     </section>
