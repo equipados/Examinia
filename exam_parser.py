@@ -44,9 +44,10 @@ def analyze_pages_with_gemini(
     low_confidence_threshold: float = 0.72,
     reanalysis_threshold: float = 0.55,
     progress_callback=None,  # callable(current: int, total: int) opcional
+    known_questions_context: list[dict] | None = None,
 ) -> list[PageExtraction]:
     extracted_pages: list[PageExtraction] = []
-    questions_context: list[dict] = []
+    questions_context: list[dict] = known_questions_context or []
     page_images_sorted = sorted(page_images, key=lambda p: p.page_number)
     _total_pages = len(page_images_sorted)
 

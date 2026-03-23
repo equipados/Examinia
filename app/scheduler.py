@@ -380,6 +380,30 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
         # Wrap with solution cache for this session
         gemini = _CachingGeminiWrapper(real_gemini, submission.session_id, db)
 
+        # Construir questions_context desde soluciones validadas (si existen) para consistencia
+        # Esto evita re-extraer la portada cada vez y garantiza IDs de ejercicio idénticos
+        _known_ctx: list[dict] | None = None
+        from app.db_models import SessionSolution as _SS_ctx
+        _ctx_rows = db.query(_SS_ctx).filter(
+            _SS_ctx.session_id == submission.session_id,
+            _SS_ctx.status.in_(["validated", "manual"]),
+        ).order_by(_SS_ctx.question_id, _SS_ctx.part_id).all()
+        if _ctx_rows:
+            _ctx_questions: dict[str, dict] = {}
+            for row in _ctx_rows:
+                if row.question_id not in _ctx_questions:
+                    _ctx_questions[row.question_id] = {
+                        "question_id": row.question_id,
+                        "statement": row.question_statement or "",
+                        "parts": [],
+                    }
+                _ctx_questions[row.question_id]["parts"].append({
+                    "part_id": row.part_id,
+                    "statement": row.part_statement or "",
+                })
+            _known_ctx = list(_ctx_questions.values())
+            _step(f"Estructura del examen cargada de soluciones validadas: {len(_known_ctx)} ejercicio(s)")
+
         page_extractions = analyze_pages_with_gemini(
             page_images=page_images,
             gemini_client=real_gemini,
@@ -387,6 +411,7 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
             progress_callback=lambda cur, tot: _step(
                 f"Página {cur}/{tot} analizada" + (" ✓" if cur == tot else "...")
             ),
+            known_questions_context=_known_ctx,
         )
 
         # 3b. Build bbox map (question_id, part_id) → {x_pct, y_pct, w_pct, h_pct, page_number}
@@ -631,7 +656,11 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
         submission.exam_model = result.exam_model
         submission.course_level = result.course_level
         submission.total_points = result.total_points
-        submission.max_total_points = result.max_total_points
+        # Usar max_total_points de la sesión si está configurado (evita 10.01 por redondeo acumulativo)
+        if session_obj and session_obj.max_total_points:
+            submission.max_total_points = session_obj.max_total_points
+        else:
+            submission.max_total_points = result.max_total_points
         submission.incidents = json.dumps(result.incidents, ensure_ascii=False)
         submission.report_path = result.report_path
         submission.cover_layout_json = json.dumps(cover_layout, ensure_ascii=False) if cover_layout else None
