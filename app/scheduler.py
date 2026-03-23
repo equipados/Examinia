@@ -735,6 +735,18 @@ def _run_pipeline(submission_id: int, db_path: str, upload_dir: str, config_over
 
 
 def enqueue(submission_id: int, db_path: str, upload_dir: str, config_overrides: dict | None = None) -> None:
+    # Marcar como processing inmediatamente para que la UI lo refleje
+    try:
+        from app.database import get_db
+        db = next(get_db())
+        from app.db_models import Submission
+        sub = db.query(Submission).filter(Submission.id == submission_id).first()
+        if sub and sub.status == "pending":
+            sub.status = "processing"
+            db.commit()
+        db.close()
+    except Exception:
+        pass
     _executor.submit(_run_pipeline, submission_id, db_path, upload_dir, config_overrides or {})
 
 

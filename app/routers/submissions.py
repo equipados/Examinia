@@ -100,6 +100,12 @@ async def upload_pdfs(
 
     if validated_count > 0 and unvalidated_count == 0:
         # Todas las soluciones están validadas → encolar corrección y volver a la convocatoria
+        # Si no hay ninguna submission procesando en toda la BD, el pool puede estar atascado
+        any_processing = db.query(Submission).filter(
+            Submission.status == "processing",
+        ).count()
+        if any_processing == 0:
+            scheduler.reset_executor()
         pending_subs = db.query(Submission).filter(
             Submission.session_id == session_id,
             Submission.status == "pending",
